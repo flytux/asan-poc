@@ -195,7 +195,14 @@ $ k run -it --rm curl --image curlimages/curl -- sh
 
 ### 8. longhorn 설치
 ```
-helm install longhorn \
+$ yum --setopt=tsflags=noscripts install iscsi-initiator-utils
+$ echo "InitiatorName=$(/sbin/iscsi-iname)" > /etc/iscsi/initiatorname.iscsi
+$ systemctl enable iscsid
+$ systemctl start iscsid
+
+# apt -y install open-iscsi # Ubuntu
+
+$ helm install longhorn \
     charts/longhorn-1.6.0.tgz \
     --namespace longhorn-system \
     --create-namespace \
