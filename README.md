@@ -2,10 +2,10 @@
 
 ---
 ```bash
-# RHEL의 경우 selinux 해제
-$ selinux disable
+
+# selinux disable
 $ setenforce 0
-$sed -i --follow-symlinks 's/SELINUX=.*/SELINUX=disabled/g' /etc/sysconfig/selinux
+$ sed -i --follow-symlinks 's/SELINUX=.*/SELINUX=disabled/g' /etc/sysconfig/selinux
 
 #iptables 설치 확인
 ```
