@@ -1,0 +1,21 @@
+expose:
+  ingress:
+    hosts:
+      core: harbor.asan
+externalURL: https://harbor.asan
+
+persistence:
+  enabled: true
+  resourcePolicy: "keep"
+  persistentVolumeClaim:
+    registry:
+      storageClass: "longhorn"
+    jobservice:
+      jobLog:
+        storageClass: "longhorn"
+    database:
+      storageClass: "longhorn"
+    redis:
+      storageClass: "longhorn"
+    trivy:
+      storageClass: "longhorn"

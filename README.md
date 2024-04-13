@@ -20,7 +20,7 @@ kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/
 ```
 helm repo add rancher-latest https://releases.rancher.com/server-charts/latest 
 
-helm upgrade -i rancher rancher-2.8.3.tgz \
+helm upgrade -i rancher charts/rancher-2.8.3.tgz \
 --set hostname=rancher.asan --set bootstrapPassword=admin \
 --set replicas=1 --set global.cattle.psp.enabled=false \
 --create-namespace -n cattle-system
@@ -54,7 +54,7 @@ systemctl restart nfs-server
 exportfs -v
 
 helm upgrade -i nfs-client \
-     nfs-subdir-external-provisioner-4.0.18.tgz \
+     charts/nfs-subdir-external-provisioner-4.0.18.tgz \
      -f nfs-values.yaml -n kube-system
 ```
 
@@ -66,7 +66,7 @@ helm repo add gitlab https://charts.gitlab.io
 ### 8. longhorn 설치
 ```
 helm install longhorn \
-    longhorn-1.6.0.tgz \
+    charts/longhorn-1.6.0.tgz \
     --namespace longhorn-system \
     --create-namespace \
     --values longhorn-values.yaml
@@ -74,9 +74,9 @@ helm install longhorn \
 
 ### 9. harbor 설치
 ```
-helm upgrade -i harbor harbor-1.14.2.tgz\
+helm upgrade -i harbor charts/harbor-1.14.2.tgz\
      -n harbor --create-namespace \
-	 -f harbor-values.yaml
+     -f harbor-values.yaml
 
 # 사설인증서 등록
 kubectl get secrets harbor-ingress -o jsonpath="{.data['ca\.crt']}" | base64 -d > harbor.crt

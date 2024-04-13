@@ -1,0 +1,6 @@
+nfs:
+  server: 192.168.122.21
+  path: /mnt/pv
+  mountOptions:
+  volumeName: nfs-subdir-external-provisioner-root
+  reclaimPolicy: Retain
