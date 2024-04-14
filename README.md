@@ -71,7 +71,7 @@ helm upgrade -i nfs-client \
 helm repo add gitlab https://charts.gitlab.io
 $ helm upgrade -i gitlab gitlab/gitlab \
 --set global.edition=ce \
---set global.hosts.domain=kw01 \
+--set global.hosts.domain=asan \
 --set global.ingress.configureCertmanager=false \
 --set global.ingress.class=nginx \
 --set certmanager.install=false \
@@ -132,7 +132,7 @@ metadata:
 spec:
   ingressClassName: nginx
   rules:
-  - host: gitlab.kw01
+  - host: gitlab.asan
     http:
       paths:
       - backend:
@@ -144,7 +144,7 @@ spec:
         pathType: Prefix
   tls:
   - hosts:
-    - gitlab.kw01
+    - gitlab.asan
     secretName: gitlab-web-tls
 EOF
 
@@ -152,15 +152,15 @@ EOF
 # Add selfsigned CA crt to gitlab runner via secret
 # add to /etc/hosts 
 cat << EOF | sudo tee -a /etc/hosts
-10.128.0.5 gitlab.kw01
+10.128.0.5 gitlab.asan
 EOF
 
 $ openssl s_client -showcerts -connect gitlab.kw01:443 -servername gitlab.kw01 < /dev/null 2>/dev/null | openssl x509 -outform PEM > gitlab.kw01.crt
 # Custom CA 인증서를 추가합니다.
-$ cat ca.crt >> gitlab.kw01.crt
-$ k create secret generic gitlab-runner-tls --from-file=gitlab.kw01.crt  -n gitlab
+$ cat ca.crt >> gitlab.asan.crt
+$ k create secret generic gitlab-runner-tls --from-file=gitlab.asan.crt  -n gitlab
 
-# add in cluster dns gitlab.kw01 to coredns
+# add in cluster dns gitlab.asan to coredns
 $ k edit cm -n kube-system rke2-coredns-rke2-coredns
 
 data:
@@ -171,7 +171,7 @@ data:
             lameduck 5s
         }
      hosts {
-     10.128.0.5 gitlab.kw01
+     10.128.0.5 gitlab.asan
      fallthrough
      }
      ready
@@ -361,13 +361,13 @@ EOF
 ```
 # Setup runner and get runner token from KW-MVN project
 
-# https://gitlab.kw01/argo/kw-mvn/-/runners/new
+# https://gitlab.asan/argo/kw-mvn/-/runners/new
 
 # Configuration > Run untagged jobs 체크 > Submit
 # Copy token glrt-wb_BLETYwEdVpP6qCyQX
 
 $ cat << EOF > gitlab-runner-values.yaml
-gitlabUrl: https://gitlab.kw01
+gitlabUrl: https://gitlab.asan
 
 runnerToken: glrt-wb_BLETYwEdVpP6qCyQX
 rbac:
@@ -403,7 +403,7 @@ spec:
 EOF
 
 # Gitlab Runner 설치
-$ helm upgrade -i gitlab-runner -f gitlab-runner-values.yaml gitlab/gitlab-runner
+$ helm upgrade -i gitlab-runner -f gitlab-runner-values.yaml gitlab/gitlab-runner -n gitlab
 ```
 
 20. sample 빌드 파이프라인 구성
