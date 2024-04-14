@@ -394,7 +394,7 @@ metadata:
   name: gitlab-runner-cache-pvc
   namespace: gitlab
 spec:
-  storageClassName: local-path
+  storageClassName: nfs-client
   accessModes:
   - ReadWriteOnce
   resources:
