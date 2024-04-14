@@ -49,8 +49,8 @@ kubectl apply -f minio.yaml
 ```
 nfs 서버 설치
 
-dnf install nfs-util
-sysemctl enable nfs-server
+dnf install nfs-utils
+systemctl enable nfs-server
 mkdir -p /mnt/pv
 chmod 707 /mnt/pv
 chown -R 65534:65534 /mnt/pv 
@@ -66,7 +66,7 @@ helm upgrade -i nfs-client \
      -f nfs-values.yaml -n kube-system
 ```
 
-### 7. gitlab
+### 7. gitlab 설치치
 ```
 helm repo add gitlab https://charts.gitlab.io
 $ helm upgrade -i gitlab gitlab/gitlab \
@@ -233,177 +233,4 @@ address        = "unix:///run/k3s/containerd/containerd.sock"
 namespace      = "k8s.io"
 snapshotter    = "stargz"
 cgroup_manager = "cgroupfs"
-hosts_dir      = ["/etc/containerd/certs.d", "/etc/docker/certs.d"]
-experimental   = true
-```
-
-### 10. docker registry 설치
-```
-openssl req -x509 -newkey rsa:4096 -sha256 -days 3650 -nodes \
-  -keyout example.key -out example.crt -subj '/CN=example.com' \
-  -addext 'subjectAltName=DNS:example.com,DNS:example.net'
-
-openssl req -in domain.csr -text -noout
-
-$mkdir docker_reg_auth
-$docker run -it --entrypoint htpasswd \
--v $PWD/docker_reg_auth:/auth \
--w /auth registry:2 -Bbc /auth/htpasswd admin password
-
-
-nerdctl run -d -p 5000:5000 --restart=always --name registry \
--v $PWD/docker_reg_certs:/certs -v /reg:/var/lib/registry \
--e REGISTRY_HTTP_TLS_CERTIFICATE=/certs/domain.crt \
--e REGISTRY_HTTP_TLS_KEY=/certs/domain.key \
--e "REGISTRY_AUTH_HTPASSWD_REALM=Registry Realm"\
--e REGISTRY_AUTH_HTPASSWD_PATH=/auth/htpasswd \
--e REGISTRY_AUTH=htpasswd registry:2
-```
-
-### 10. rancher 모니터링 설치
-
-11. logging operator 설치
-
-12. loki stack 설치
-
-13. elasticsearch 설치
-
-14. velero 설치
-
-15. mariadb 설치
-
-16. postgresql 설치
-
-17. kafka 설치
-
-### 18. argocd 설치
-```
-# install argocd
-$ kubectl create namespace argocd
-$ kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
-
-# 앞에서 설정한 경우 Skip
-# add argocd ssl-passthrough args to ingress-controller
-$ k edit ds -n kube-system rke2-ingress-nginx-controller
-
-# add "--enable-ssl-passthrough" at line 53
-  - --watch-ingress-without-class=true
-  - --enable-ssl-passthrough
-# save and qute (:wq)
-
-# add ingress for argocd
-$ kubectl -n argocd apply -f - <<"EOF"  
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: argocd-server-ingress
-  namespace: argocd
-  annotations:
-    kubernetes.io/ingress.class: nginx
-    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
-    nginx.ingress.kubernetes.io/ssl-passthrough: "true"
-spec:
-  rules:
-  - host: argocd.kw01
-    http:
-      paths:
-      - path: /
-        pathType: Prefix
-        backend:
-          service:
-            name: argocd-server
-            port:
-              name: https
-EOF
-
-# get argocd initial password
-$ kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d
-
-# add gitlab ca-cert (self-signed)
-- https://argocd.kw01/settings/certs?addTLSCert=true
-- add name gitlab.kw01 & paste gitlab.kw01.crt pem file
-
-$ cat gitlab.kw01.crt
-
-# add argocd app 
-
-$ kn argocd
-$ k exec -it $(k get pods -l app.kubernetes.io/name=argocd-server -o name) bash
-
-# check argocd user id and password
-$ argocd login argocd-server.argocd --insecure --username admin --password e3m7VS-JpcpczVcq
-$ argocd repo add https://gitlab.kw01/argo/kw-mvn-deploy.git --username argo --insecure-skip-server-verification
-# enter gitlab password : abcd!234
-
-$ kubectl -n argocd apply -f - <<"EOF"
-apiVersion: argoproj.io/v1alpha1
-kind: Application
-metadata:
-  name: kw-mvn
-spec:
-  destination:
-    name: ''
-    namespace: deploy
-    server: 'https://kubernetes.default.svc'
-  source:
-    path: .
-    repoURL: 'https://gitlab.kw01/argo/kw-mvn-deploy.git'
-    targetRevision: main
-  sources: []
-  project: default
-  syncPolicy:
-    syncOptions:
-      - CreateNamespace=true
-EOF
-```
-
-### 19. gitlab runner 설치
-```
-# Setup runner and get runner token from KW-MVN project
-
-# https://gitlab.asan/argo/kw-mvn/-/runners/new
-
-# Configuration > Run untagged jobs 체크 > Submit
-# Copy token glrt-wb_BLETYwEdVpP6qCyQX
-
-$ cat << EOF > gitlab-runner-values.yaml
-gitlabUrl: https://gitlab.asan
-
-runnerToken: glrt-wb_BLETYwEdVpP6qCyQX
-rbac:
-  create: true
-
-certsSecretName: gitlab-runner-tls
-
-runners:
-  config: |
-    [[runners]]
-      [runners.kubernetes]
-        namespace = "{{.Release.Namespace}}"
-        image = "ubuntu:16.04"
-    [[runners.kubernetes.volumes.pvc]]
-      mount_path = "/cache/maven.repository"
-      name = "gitlab-runner-cache-pvc"
-EOF
-
-# create gitlab runner cache pvc
-$ kubectl -n gitlab apply -f - <<"EOF"
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: gitlab-runner-cache-pvc
-  namespace: gitlab
-spec:
-  storageClassName: local-path
-  accessModes:
-  - ReadWriteOnce
-  resources:
-    requests:
-      storage: 1Gi
-EOF
-
-# Gitlab Runner 설치
-$ helm upgrade -i gitlab-runner -f gitlab-runner-values.yaml gitlab/gitlab-runner -n gitlab
-```
-
-20. sample 빌드 파이프라인 구성
+hosts_dir      = ["/etc/containerd/certs.d",행
