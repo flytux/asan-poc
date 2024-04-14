@@ -66,7 +66,7 @@ helm upgrade -i nfs-client \
      -f nfs-values.yaml -n kube-system
 ```
 
-### 7. gitlab 설치치
+### 7. gitlab 설치
 ```
 helm repo add gitlab https://charts.gitlab.io
 $ helm upgrade -i gitlab gitlab/gitlab \
