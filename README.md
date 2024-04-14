@@ -49,7 +49,9 @@ kubectl apply -f minio.yaml
 ```
 nfs 서버 설치
 
-dnf install nfs-utils
+dnf install nfs-utils # RHEL
+apt install nfs-server -y # Ubuntu
+
 systemctl enable nfs-server
 mkdir -p /mnt/pv
 chmod 707 /mnt/pv
