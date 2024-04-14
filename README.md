@@ -233,4 +233,5 @@ address        = "unix:///run/k3s/containerd/containerd.sock"
 namespace      = "k8s.io"
 snapshotter    = "stargz"
 cgroup_manager = "cgroupfs"
-hosts_dir      = ["/etc/containerd/certs.d",행
+hosts_dir      = ["/etc/containerd/certs.d", "/etc/docker/certs.d"]
+experimental   = true
