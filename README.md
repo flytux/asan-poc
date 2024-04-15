@@ -108,14 +108,14 @@ nerdctl login harbor.asan # admin/Harbor12345
 
 ```
 
-#### 8. minio 설치 
+#### 7. minio 설치 
 ```
 kubectl apply -f minio.yaml
 ```
 
 ## DEVOPS 클러스터 구성
 
-#### 9. gitlab 설치
+#### 8. gitlab 설치
 ```
 # Gitlab 설치
 $ helm upgrade -i gitlab charts/gitlab-7.10.2.tgz \
@@ -222,7 +222,7 @@ $ k run -it --rm curl --image curlimages/curl -- sh
 
 ```
 
-#### 10. gitlab runner 설치
+#### 9. gitlab runner 설치
 ```
 # Setup runner and get runner token from KW-MVN project
 # https://gitlab.asan/argo/kw-mvn/-/runners/new
@@ -270,7 +270,7 @@ EOF
 $ helm upgrade -i gitlab-runner -f gitlab-runner-values.yaml charts/gitlab-runner-0.63.0.tgz -n gitlab
 ```
 
-#### 11. argocd 설치
+#### 10. argocd 설치
 ```
 # install argocd
 $ kubectl create namespace argocd
@@ -351,7 +351,7 @@ spec:
 EOF
 ```
 
-#### 12. SAMPLE 빌드 파이프라인 구성
+#### 11. SAMPLE 빌드 파이프라인 구성
 
 ```
 variables:
@@ -430,7 +430,7 @@ sync-argocd:
     - argocd app wait $ARGO_APP_NAME --sync --health --operation --insecure
 ```
 
-#### 13. longhorn 설치
+#### 12. longhorn 설치
 ```
 $ yum --setopt=tsflags=noscripts install iscsi-initiator-utils
 $ echo "InitiatorName=$(/sbin/iscsi-iname)" > /etc/iscsi/initiatorname.iscsi
@@ -446,29 +446,29 @@ $ helm install longhorn \
     --values longhorn-values.yaml
 ```
 
-#### 14. rancher 모니터링 설치
+#### 13. rancher 모니터링 설치
 
 
-#### 15. logging operator 설치
+#### 14. logging operator 설치
 
 
-#### 16. loki stack 설치
+#### 15. loki stack 설치
 
 
-#### 17. elasticsearch 설치
+#### 16. elasticsearch 설치
 
 
-#### 18. velero 설치
+#### 17. velero 설치
 
 
-#### 19. mariadb 설치
+#### 18. mariadb 설치
 
 
-#### 20. postgresql 설치
+#### 19. postgresql 설치
 
 
-#### 21. kafka 설치
+#### 20. kafka 설치
 
 
-#### 22. NATS 설치
+#### 21. NATS 설치
 
