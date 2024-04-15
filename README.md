@@ -11,7 +11,7 @@
 $ setenforce 0
 $ sed -i --follow-symlinks 's/SELINUX=.*/SELINUX=disabled/g' /etc/sysconfig/selinux
 
-#iptables 설치 확인
+# iptables 설치 확인
 ```
 
 #### 1. rke2 클러스터 생성 - terraform
@@ -74,31 +74,47 @@ kubectl patch storageclass nfs-client -n kube-system -p '{"metadata": {"annotati
 #### 6. harbor 설치
 ```
 # 사설 인증서 생성
-$ openssl req -x509 -newkey rsa:4096 -sha256 -days 3650 -nodes \
-  -keyout tls.key -out tls.crt -subj '/CN=harbor.asan' \
-  -addext 'subjectAltName=DNS:harbor.asan'
+$ openssl genrsa -out ca.key 4096
 
-$ 인증서 생성 후 테스트 필요 
-openssl genrsa -out ca.key 2048
-openssl req -new -x509 -days 365 -key ca.key -subj "/C=CN/ST=GD/L=SZ/O=Acme, Inc./CN=Acme Root CA" -out ca.crt
-openssl req -newkey rsa:2048 -nodes -keyout server.key -subj "/C=CN/ST=GD/L=SZ/O=Acme, Inc./CN=*.example.com" -out server.csr
-openssl x509 -req -extfile <(printf "subjectAltName=DNS:example.com,DNS:www.example.com") -days 365 -in server.csr -CA ca.crt -CAkey ca.key -CAcreateserial -out server.crt
+$ openssl req -x509 -new -nodes -sha512 -days 3650 \
+ -subj "/C=CN/ST=Seoul/L=Seoul/O=Asan/OU=Asan/CN=Asan" \
+ -key ca.key \
+ -out ca.crt
 
+$openssl genrsa -out harbor.asan.key 4096
+
+$ openssl req -sha512 -new \
+    -subj "/C=CN/ST=Seoul/L=Seoul/O=Asan/OU=Asan/CN=Asan" \
+    -key harbor.asan.key \
+    -out harbor.asan.csr
+	
+$ cat > v3.ext <<-EOF
+authorityKeyIdentifier=keyid,issuer
+basicConstraints=CA:FALSE
+keyUsage = digitalSignature, nonRepudiation, keyEncipherment, dataEncipherment
+extendedKeyUsage = serverAuth
+subjectAltName = @alt_names
+
+[alt_names]
+DNS.1=harbor.asan
+EOF
+
+$ openssl x509 -req -sha512 -days 3650 \
+    -extfile v3.ext \
+    -CA ca.crt -CAkey ca.key -CAcreateserial \
+    -in harbor.asan.csr \
+    -out harbor.asan.crt
 
 $ kubectl create ns harbor
-$ kubectl create secret tls harbor-crt --key tls.key --cert tls.crt -n harbor
+$ kubectl create secret tls harbor-ingress-tls --key harbor.asan.key --cert harbor.asan.crt -n harbor
 
 # harbor 설치
 helm upgrade -i harbor charts/harbor-1.14.2.tgz\
      -n harbor -f harbor-values.yaml
 
-# ingress tls secret 변경 -> harbor-crt
-
 # 사설인증서 등록
-kubectl get secrets harbor-crt -o jsonpath="{.data['tls\.key']}" | base64 -d > harbor.crt
-kubectl get secrets harbor-crt -o jsonpath="{.data['tls\.crt']}" | base64 -d >> harbor.crt
 
-cp harbor.crt /etc/pki/ca-trust/source/anchors/ ( /usr/local/share/ca-certificates/ # ubuntu )
+cp harbor.asan.crt harbor.asan.key /etc/pki/ca-trust/source/anchors/ ( /usr/local/share/ca-certificates/ # ubuntu )
 update-ca-trust ( update-ca-certificates # ubuntu )
 
 curl -LO https://github.com/containerd/nerdctl/releases/download/v2.0.0-beta.4/nerdctl-2.0.0-beta.4-linux-amd64.tar.gz
@@ -114,28 +130,10 @@ snapshotter    = "stargz"
 cgroup_manager = "cgroupfs"
 hosts_dir      = ["/etc/containerd/certs.d", "/etc/docker/certs.d"]
 experimental   = true
-```
 
-#### (Optional) 7. docker registry 설치
-```
+# harbor 접속
+nerdctl login harbor.asan # admin/Harbor12345
 
-$ mkdir docker_reg_auth
-
-$ openssl req -x509 -newkey rsa:4096 -sha256 -days 3650 -nodes \
-  -keyout reg.key -out reg.crt -subj '/CN=harbor.asan' \
-  -addext 'subjectAltName=DNS:harbor.asan'
-
-$ nerdctl run -it --entrypoint htpasswd \
--v $PWD/docker_reg_auth:/auth \
--w /auth registry:2 -Bbc /auth/htpasswd admin password
-
-$ nerdctl run -d -p 5000:5000 --restart=always --name registry \
--v $PWD/docker_reg_certs:/certs -v /reg:/var/lib/registry \
--e REGISTRY_HTTP_TLS_CERTIFICATE=/certs/reg.crt \
--e REGISTRY_HTTP_TLS_KEY=/certs/reg.key \
--e "REGISTRY_AUTH_HTPASSWD_REALM=Registry Realm"\
--e REGISTRY_AUTH_HTPASSWD_PATH=/auth/htpasswd \
--e REGISTRY_AUTH=htpasswd registry:2
 ```
 
 #### 8. minio 설치 
@@ -147,8 +145,8 @@ kubectl apply -f minio.yaml
 
 #### 9. gitlab 설치
 ```
-helm repo add gitlab https://charts.gitlab.io
-$ helm upgrade -i gitlab gitlab/gitlab \
+# Gitlab 설치치
+$ helm upgrade -i gitlab charts/gitlab-7.10.2.tgz \
 --set global.edition=ce \
 --set global.hosts.domain=asan \
 --set global.ingress.configureCertmanager=false \
@@ -180,11 +178,33 @@ $ k get -n gitlab secret gitlab-gitlab-initial-root-password -ojsonpath='{.data.
 # Delete default ingress gitlab-webservice
 $ k delete ingress gitlab-webservice-default -n gitlab
 
-$ openssl req -x509 -newkey rsa:4096 -sha256 -days 3650 -nodes \
-  -keyout gitlab.key -out gitlab.crt -subj '/CN=gitlab.asan' \
-  -addext 'subjectAltName=DNS:gitlab.asan'
+# 사설인증서 생성
+$ openssl genrsa -out gitlab.asan.key 4096
 
-$ kubectl create secret tls gitlab-crt --key gitlab.key --cert gitlab.crt -n gitlab
+$ openssl req -sha512 -new \
+    -subj "/C=CN/ST=Seoul/L=Seoul/O=Asan/OU=Asan/CN=Asan" \
+    -key gitlab.asan.key \
+    -out gitlab.asan.csr
+	
+$ cat > v3.ext <<-EOF
+authorityKeyIdentifier=keyid,issuer
+basicConstraints=CA:FALSE
+keyUsage = digitalSignature, nonRepudiation, keyEncipherment, dataEncipherment
+extendedKeyUsage = serverAuth
+subjectAltName = @alt_names
+
+[alt_names]
+DNS.1=gitlab.asan
+EOF
+
+$ openssl x509 -req -sha512 -days 3650 \
+    -extfile v3.ext \
+    -CA ca.crt -CAkey ca.key -CAcreateserial \
+    -in gitlab.asan.csr \
+    -out gitlab.asan.crt
+	
+	
+$ kubectl create secret tls gitlab-ingresss-tls --key gitlab.asan.key --cert gitlab.asan.crt -n gitlab
 
 # Create Ingress 
 $ kubectl -n gitlab apply -f - <<"EOF"
@@ -208,7 +228,7 @@ spec:
   tls:
   - hosts:
     - gitlab.asan
-    secretName: gitlab-crt
+    secretName: gitlab-ingress-tls
 EOF
 
 
@@ -218,10 +238,11 @@ cat << EOF | sudo tee -a /etc/hosts
 192.168.122.21 gitlab.asan
 EOF
 
-$ openssl s_client -showcerts -connect gitlab.asan:443 -servername gitlab.asan < /dev/null 2>/dev/null | openssl x509 -outform PEM > gitlab.asan.crt
-# Custom CA 인증서를 추가합니다.
-$ cat ca.crt >> gitlab.kw01.crt
-$ k create secret generic gitlab-runner-tls --from-file=gitlab.asan.crt  -n gitlab
+# 사설인증서 시크릿 생성
+$ cat gitlab.asan.crt > gitlab.runner.crt
+$ cat ca.crt >> gitlab.runner.crt
+
+$ k create secret generic gitlab-runner-tls --from-file=gitlab.runner.crt  -n gitlab
 
 # add in cluster dns gitlab.asan to coredns
 $ k edit cm -n kube-system rke2-coredns-rke2-coredns
@@ -234,7 +255,7 @@ data:
             lameduck 5s
         }
      hosts {
-     10.128.0.5 gitlab.asan
+     192.168.122.21 gitlab.asan # Gitlab Ingress IP
      fallthrough
      }
      ready
@@ -369,7 +390,7 @@ runnerToken: glrt-wb_BLETYwEdVpP6qCyQX # 저장한 토큰값 사용
 rbac:
   create: true
 
-certsSecretName: gitlab-crt # 생성한 gitlab 인증서/CA기반 secret
+certsSecretName: gitlab-runner-tls # 생성한 gitlab 인증서/CA기반 secret
 
 runners:
   config: |
