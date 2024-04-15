@@ -71,13 +71,23 @@ helm upgrade -i nfs-client \
 
 #### 6. harbor 설치
 ```
+# 사설 인증서 생성
+$ openssl req -x509 -newkey rsa:4096 -sha256 -days 3650 -nodes \
+  -keyout tls.key -out tls.crt -subj '/CN=harbor.asan' \
+  -addext 'subjectAltName=DNS:harbor.asan'
+
+$ kubectl create secret tls harbor-crt --key tls.key --cert tls.crt -n harbor
+
+# harbor 설치
 helm upgrade -i harbor charts/harbor-1.14.2.tgz\
      -n harbor --create-namespace \
      -f harbor-values.yaml
 
+# ingress tls secret 변경 -> harbor-crt
+
 # 사설인증서 등록
-kubectl get secrets harbor-ingress -o jsonpath="{.data['ca\.crt']}" | base64 -d > harbor.crt
-kubectl get secrets harbor-ingress -o jsonpath="{.data['tls\.crt']}" | base64 -d >> harbor.crt
+kubectl get secrets harbor-crt -o jsonpath="{.data['tls\.key']}" | base64 -d > harbor.crt
+kubectl get secrets harbor-crt -o jsonpath="{.data['tls\.crt']}" | base64 -d >> harbor.crt
 
 cp harbor.crt /etc/pki/ca-trust/source/anchors/ ( /usr/local/share/ca-certificates/ # ubuntu )
 update-ca-trust ( update-ca-certificates # ubuntu )
@@ -99,22 +109,21 @@ experimental   = true
 
 #### (Optional) 7. docker registry 설치
 ```
-openssl req -x509 -newkey rsa:4096 -sha256 -days 3650 -nodes \
-  -keyout example.key -out example.crt -subj '/CN=example.com' \
-  -addext 'subjectAltName=DNS:example.com,DNS:example.net'
 
-openssl req -in domain.csr -text -noout
+$ mkdir docker_reg_auth
 
-$mkdir docker_reg_auth
-$docker run -it --entrypoint htpasswd \
+$ openssl req -x509 -newkey rsa:4096 -sha256 -days 3650 -nodes \
+  -keyout reg.key -out reg.crt -subj '/CN=harbor.asan' \
+  -addext 'subjectAltName=DNS:harbor.asan'
+
+$ nerdctl run -it --entrypoint htpasswd \
 -v $PWD/docker_reg_auth:/auth \
 -w /auth registry:2 -Bbc /auth/htpasswd admin password
 
-
-nerdctl run -d -p 5000:5000 --restart=always --name registry \
+$ nerdctl run -d -p 5000:5000 --restart=always --name registry \
 -v $PWD/docker_reg_certs:/certs -v /reg:/var/lib/registry \
--e REGISTRY_HTTP_TLS_CERTIFICATE=/certs/domain.crt \
--e REGISTRY_HTTP_TLS_KEY=/certs/domain.key \
+-e REGISTRY_HTTP_TLS_CERTIFICATE=/certs/reg.crt \
+-e REGISTRY_HTTP_TLS_KEY=/certs/reg.key \
 -e "REGISTRY_AUTH_HTPASSWD_REALM=Registry Realm"\
 -e REGISTRY_AUTH_HTPASSWD_PATH=/auth/htpasswd \
 -e REGISTRY_AUTH=htpasswd registry:2
@@ -145,7 +154,7 @@ $ helm upgrade -i gitlab gitlab/gitlab \
 $ k get -n gitlab secret gitlab-gitlab-initial-root-password -ojsonpath='{.data.password}' | base64 -d
 
 # login gitlab.asan as root / %YOUR_INITIAL_PASSWORD%
-# https://gitlab.kw01/admin/application_settings/general > visibility & access controls > import sources > Repository By URL
+# https://gitlab.asan/admin/application_settings/general > visibility & access controls > import sources > Repository By URL
 
 # create User with YOUR ID / PASSWD
 # argo / abcd!234 argo@devops
@@ -159,34 +168,20 @@ $ k get -n gitlab secret gitlab-gitlab-initial-root-password -ojsonpath='{.data.
 - https://github.com/flytux/kw-mvn-deploy : Project Name > KW-MVN-DEPLOY
 - main branch > deploy.yml 파일의 이미지 URL을 harbor.asan로 변경
 
-# Create CA certs for CA Issuer
-$ openssl genrsa -out ca.key 2048
-$ openssl req -new -x509 -days 3650 -key ca.key -subj "/C=KR/ST=SE/L=SE/O=Kubeworks/CN=KW Root CA" -out ca.crt
-$ kubectl create secret tls gitlab-ca --key ca.key --cert ca.crt -n gitlab
-
-# Create CA Issuer
-$ kubectl -n gitlab apply -f - <<"EOF"
-apiVersion: cert-manager.io/v1
-kind: ClusterIssuer
-metadata:
-  name: gitlab-ca-issuer
-  namespace: gitlab
-spec:
-  ca:
-    secretName: gitlab-ca
-EOF
-
 # Delete default ingress gitlab-webservice
 $ k delete ingress gitlab-webservice-default -n gitlab
+
+$ openssl req -x509 -newkey rsa:4096 -sha256 -days 3650 -nodes \
+  -keyout gitlab.key -out gitlab.crt -subj '/CN=gitlab.asan' \
+  -addext 'subjectAltName=DNS:gitlab.asan'
+
+$ kubectl create secret tls gitlab-crt --key gitlab.key --cert gitlab.crt -n gitlab
 
 # Create Ingress 
 $ kubectl -n gitlab apply -f - <<"EOF"
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  annotations:
-    cert-manager.io/issuer: gitlab-ca-issuer
-  name: gitlab-web-ingress
   namespace: gitlab
 spec:
   ingressClassName: nginx
@@ -204,14 +199,14 @@ spec:
   tls:
   - hosts:
     - gitlab.asan
-    secretName: gitlab-web-tls
+    secretName: gitlab-crt
 EOF
 
 
 # Add selfsigned CA crt to gitlab runner via secret
 # add to /etc/hosts 
 cat << EOF | sudo tee -a /etc/hosts
-10.128.0.5 gitlab.asan
+192.168.122.21 gitlab.asan
 EOF
 
 $ openssl s_client -showcerts -connect gitlab.asan:443 -servername gitlab.asan < /dev/null 2>/dev/null | openssl x509 -outform PEM > gitlab.asan.crt
@@ -400,6 +395,82 @@ $ helm upgrade -i gitlab-runner -f gitlab-runner-values.yaml gitlab/gitlab-runne
 
 #### 13. SAMPLE 빌드 파이프라인 구성
 
+```
+variables:
+  MAVEN_OPTS: "-Dmaven.repo.local=/cache/maven.repository"
+  IMAGE_URL: "10.128.0.5:30005/kw-mvn"
+  DEPLOY_REPO_URL: "https://gitlab.kw01/argo/kw-mvn-deploy.git"
+  DEPLOY_REPO_CREDENTIALS: "https://argo:abcd!234@gitlab.kw01/argo/kw-mvn-deploy.git"
+  REGISTRY_USER_ID: "admin"
+  REGISTRY_USER_PASSWORD: "1"
+  ARGO_URL: "argocd-server.argocd"
+  ARGO_USER_ID: "admin"
+  ARGO_USER_PASSWORD: "CWJjH2Fb278mmuDx"
+  ARGO_APP_NAME: "kw-mvn"
+
+
+stages:
+  - maven-jib-build
+  - update-yaml
+  - sync-argo-app
+
+maven-jib-build: 
+  image: gcr.io/cloud-builders/mvn@sha256:57523fc43394d6d9d2414ee8d1c85ed7a13460cbb268c3cd16d28cfb3859e641
+  stage: maven-jib-build
+  script:
+    - COMMIT_TIME="$(date -d "$CI_COMMIT_TIMESTAMP" +"%Y%m%d-%H%M%S")"
+    - "mvn -B \
+        -DsendCredentialsOverHttp=true \
+        -Djib.allowInsecureRegistries=true \
+        -Djib.to.image=$IMAGE_URL:$COMMIT_TIME-$CI_JOB_ID \
+        -Djib.to.auth.username=$REGISTRY_USER_ID \
+        -Djib.to.auth.password=$REGISTRY_USER_PASSWORD     \
+        compile \
+        com.google.cloud.tools:jib-maven-plugin:build"
+    - echo "IMAGE_FULL_NAME=$IMAGE_URL:$COMMIT_TIME-$CI_JOB_ID" >> build.env
+    - echo "NEW_TAG=$IMAGE_URL:$COMMIT_TIME-$CI_JOB_ID" >> build.env
+    - cat build.env
+  artifacts:
+    reports:
+      dotenv: build.env
+
+update-yaml:
+  image: alpine/git:v2.26.2
+  stage: update-yaml
+  script:
+    - mkdir deploy && cd deploy
+    - git init
+
+    - echo $DEPLOY_REPO_CREDENTIALS > ~/.git-credentials 
+    - cat ~/.git-credentials
+    - git config credential.helper store
+    
+    - git remote add origin $DEPLOY_REPO_URL
+    - git remote -v
+
+    - git -c http.sslVerify=false fetch --depth 1 origin $CI_COMMIT_BRANCH
+    - git -c http.sslVerify=false checkout $CI_COMMIT_BRANCH
+    - ls -al
+
+    - echo "updating image to $IMAGE_FULL_NAME"
+    - sed -i "s|$IMAGE_URL:.*$|$IMAGE_FULL_NAME|" deploy.yml
+    - cat deploy.yml | grep image
+    
+    - git config --global user.email "argo@dev"
+    - git config --global user.name "gitlab-runner"
+    - git add .
+    - git commit --allow-empty -m "[gitlab-runner] updating image to $IMAGE_FULL_NAME"
+    - git -c http.sslVerify=false push origin $CI_COMMIT_BRANCH
+
+sync-argocd:
+  image: quay.io/argoproj/argocd:v2.4.8
+  stage: sync-argo-app
+  script:
+    - argocd login $ARGO_URL --username $ARGO_USER_ID --password $ARGO_USER_PASSWORD --insecure
+
+    - argocd app sync $ARGO_APP_NAME --insecure
+    - argocd app wait $ARGO_APP_NAME --sync --health --operation --insecure
+```
 
 #### 14. rancher 모니터링 설치
 
