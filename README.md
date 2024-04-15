@@ -74,15 +74,10 @@ kubectl patch storageclass nfs-client -n kube-system -p '{"metadata": {"annotati
 #### 6. harbor 설치
 ```
 # 사설 인증서 생성
-$ openssl genrsa -out ca.key 4096
+$ openssl genrsa -out ca.key 2048
+$ openssl req -new -x509 -days 3650 -key ca.key -subj "/C=KR/ST=SE/L=SE/O=Kubeworks/CN=KW Root CA" -out ca.crt
 
-$ openssl req -x509 -new -nodes -sha512 -days 3650 \
- -subj "/C=CN/ST=Seoul/L=Seoul/O=Asan/OU=Asan/CN=Asan" \
- -key ca.key \
- -out ca.crt
-
-$openssl genrsa -out harbor.asan.key 4096
-
+$ openssl genrsa -out harbor.asan.key 4096
 $ openssl req -sha512 -new \
     -subj "/C=CN/ST=Seoul/L=Seoul/O=Asan/OU=Asan/CN=Asan" \
     -key harbor.asan.key \
@@ -99,11 +94,7 @@ subjectAltName = @alt_names
 DNS.1=harbor.asan
 EOF
 
-$ openssl x509 -req -sha512 -days 3650 \
-    -extfile v3.ext \
-    -CA ca.crt -CAkey ca.key -CAcreateserial \
-    -in harbor.asan.csr \
-    -out harbor.asan.crt
+$ openssl x509 -req -sha512 -days 3650 -extfile v3.ext -CA ca.crt -CAkey ca.key -CAcreateserial -in harbor.asan.csr -out harbor.asan.crt
 
 $ kubectl create ns harbor
 $ kubectl create secret tls harbor-ingress-tls --key harbor.asan.key --cert harbor.asan.crt -n harbor
@@ -176,12 +167,9 @@ $ k get -n gitlab secret gitlab-gitlab-initial-root-password -ojsonpath='{.data.
 $ k delete ingress gitlab-webservice-default -n gitlab
 
 # Gitlab Runner 등록을 위한 사설인증서 생성하여 ingress에 연결결
-$ openssl genrsa -out gitlab.asan.key 4096
+$ openssl genrsa -out tls.key 2048
 
-$ openssl req -sha512 -new \
-    -subj "/C=CN/ST=Seoul/L=Seoul/O=Asan/OU=Asan/CN=Asan" \
-    -key gitlab.asan.key \
-    -out gitlab.asan.csr
+$ openssl req -sha512 -new -subj "/C=CN/ST=Seoul/L=Seoul/O=Asan/OU=Asan/CN=Asan" -key gitlab.key -out gitlab.csr
 	
 $ cat > v3.ext <<-EOF
 authorityKeyIdentifier=keyid,issuer
@@ -194,25 +182,21 @@ subjectAltName = @alt_names
 DNS.1=gitlab.asan
 EOF
 
-$ openssl x509 -req -sha512 -days 3650 \
-    -extfile v3.ext \
-    -CA ca.crt -CAkey ca.key -CAcreateserial \
-    -in gitlab.asan.csr \
-    -out gitlab.asan.crt
+$ openssl x509 -req -sha512 -days 3650 -extfile v3.ext -CA ca.crt -CAkey ca.key -CAcreateserial -in tls.csr -out gitlab.crt
 	
-	
-$ kubectl create secret tls gitlab-ingresss-tls --key gitlab.asan.key --cert gitlab.asan.crt -n gitlab
+$ kubectl create secret tls gitlab-ingress-tls --key gitlab.key --cert gitlab.crt -n gitlab
 
 # Create Ingress 
 $ kubectl -n gitlab apply -f - <<"EOF"
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
+  name: gitlab-ingress
   namespace: gitlab
 spec:
   ingressClassName: nginx
-  rules:xxx
-  - host: gitlab.asank get 
+  rules:
+  - host: gitlab.asan 
     http:
       paths:
       - backend:
@@ -236,7 +220,7 @@ cat << EOF | sudo tee -a /etc/hosts
 EOF
 
 # Gitlab Runner에서 사용할 사설인증서 시크릿 생성
-$ cat gitlab.asan.crt > gitlab.runner.crt
+$ cat gitlab.crt > gitlab.runner.crt
 $ cat ca.crt >> gitlab.runner.crt
 
 $ k create secret generic gitlab-runner-tls --from-file=gitlab.runner.crt  -n gitlab
