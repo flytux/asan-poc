@@ -145,7 +145,7 @@ kubectl apply -f minio.yaml
 
 #### 9. gitlab 설치
 ```
-# Gitlab 설치치
+# Gitlab 설치
 $ helm upgrade -i gitlab charts/gitlab-7.10.2.tgz \
 --set global.edition=ce \
 --set global.hosts.domain=asan \
@@ -157,19 +157,16 @@ $ helm upgrade -i gitlab charts/gitlab-7.10.2.tgz \
 --set prometheus.install=false \
 -n gitlab --create-namespace
 
-# get root initial password
+# root 사용자 초기 비밀번호 확인
 $ k get -n gitlab secret gitlab-gitlab-initial-root-password -ojsonpath='{.data.password}' | base64 -d
 
 # login gitlab.asan as root / %YOUR_INITIAL_PASSWORD%
 # https://gitlab.asan/admin/application_settings/general > visibility & access controls > import sources > Repository By URL
 
-# create User with YOUR ID / PASSWD
+# 다음 사용자 계정 생성
 # argo / abcd!234 argo@devops
 
-# approve YOUR ID with root account admin menu
-# Login root and approve argo account
-
-# Import source / deploy repository from gitlab
+# Import source / deploy repository from github
 # Login argo and import projects
 - https://github.com/flytux/kw-mvn : Project Name > KW-MVN
 - https://github.com/flytux/kw-mvn-deploy : Project Name > KW-MVN-DEPLOY
@@ -178,7 +175,7 @@ $ k get -n gitlab secret gitlab-gitlab-initial-root-password -ojsonpath='{.data.
 # Delete default ingress gitlab-webservice
 $ k delete ingress gitlab-webservice-default -n gitlab
 
-# 사설인증서 생성
+# Gitlab Runner 등록을 위한 사설인증서 생성하여 ingress에 연결결
 $ openssl genrsa -out gitlab.asan.key 4096
 
 $ openssl req -sha512 -new \
@@ -238,7 +235,7 @@ cat << EOF | sudo tee -a /etc/hosts
 192.168.122.21 gitlab.asan
 EOF
 
-# 사설인증서 시크릿 생성
+# Gitlab Runner에서 사용할 사설인증서 시크릿 생성
 $ cat gitlab.asan.crt > gitlab.runner.crt
 $ cat ca.crt >> gitlab.runner.crt
 
@@ -287,7 +284,7 @@ $ systemctl start iscsid
 # apt -y install open-iscsi # Ubuntu
 
 $ helm install longhorn \
-    charts/longhorn-1.6.0.tgz \
+    charts/longhorn-1.6.1.tgz \
     --namespace longhorn-system \
     --create-namespace \
     --values longhorn-values.yaml
