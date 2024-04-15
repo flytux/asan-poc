@@ -76,12 +76,12 @@ $ openssl req -x509 -newkey rsa:4096 -sha256 -days 3650 -nodes \
   -keyout tls.key -out tls.crt -subj '/CN=harbor.asan' \
   -addext 'subjectAltName=DNS:harbor.asan'
 
+$ kubectl create ns harbor
 $ kubectl create secret tls harbor-crt --key tls.key --cert tls.crt -n harbor
 
 # harbor 설치
 helm upgrade -i harbor charts/harbor-1.14.2.tgz\
-     -n harbor --create-namespace \
-     -f harbor-values.yaml
+     -n harbor -f harbor-values.yaml
 
 # ingress tls secret 변경 -> harbor-crt
 
