@@ -1,5 +1,11 @@
 ## 서울아산병원 PoC 환경 구성
 
+- MGMT 클러스터 (1 node) 와 DEVOPS 클러스터 (3 node) 를 구성한다.
+- MGMT 클러스터는 Rancher, Harbor, Minio 등 클러스터 환경 관리 및 공통 정보 저장소를 구성하고
+- DEVSOP 클러스터는 GitLab, ArgoCD 등 DEVOPS 툴체인과 애플리케이션 개발 및 배포 환경, DBMS 및 인프라 서비스, 모니터링, 로깅 환경을 구성한다.
+  
+---
+
 ---
 ```bash
 
@@ -18,6 +24,8 @@ https://github.com/flytux/terraform-kube
 curl -LO https://dl.k8s.io/release/v1.28.8/bin/linux/amd64/kubectl
 curl -LO https://github.com/containerd/nerdctl/releases/download/v2.0.0-beta.4/nerdctl-2.0.0-beta.4-linux-amd64.tar.gz
 ```
+
+## MGMT 클러스터 구성
 
 #### 2. cert-manager 설치
 ```
@@ -40,12 +48,7 @@ kubectl apply -f https://raw.githubusercontent.com/rancher/local-path-provisione
 kubectl patch storageclass local-path -p '{"metadata": {"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}'
 ```
 
-### 5. minio 설치 (mgmt 클러스터)
-```
-kubectl apply -f minio.yaml
-```
-
-### 6. nfs 클라이언트 설치
+### 5. nfs 클라이언트 설치
 ```
 nfs 서버 설치
 
@@ -68,7 +71,65 @@ helm upgrade -i nfs-client \
      -f nfs-values.yaml -n kube-system
 ```
 
-### 7. gitlab 설치
+### 6. harbor 설치
+```
+helm upgrade -i harbor charts/harbor-1.14.2.tgz\
+     -n harbor --create-namespace \
+     -f harbor-values.yaml
+
+# 사설인증서 등록
+kubectl get secrets harbor-ingress -o jsonpath="{.data['ca\.crt']}" | base64 -d > harbor.crt
+kubectl get secrets harbor-ingress -o jsonpath="{.data['tls\.crt']}" | base64 -d >> harbor.crt
+
+cp harbor.crt /etc/pki/ca-trust/source/anchors/ ( /usr/local/share/ca-certificates/ # ubuntu )
+update-ca-trust ( update-ca-certificates # ubuntu )
+
+curl -LO https://github.com/containerd/nerdctl/releases/download/v2.0.0-beta.4/nerdctl-2.0.0-beta.4-linux-amd64.tar.gz
+
+# nerdctl 설정
+vi /etc/nerdctl/nerdctl.toml
+
+debug          = false
+debug_full     = false
+address        = "unix:///run/k3s/containerd/containerd.sock"
+namespace      = "k8s.io"
+snapshotter    = "stargz"
+cgroup_manager = "cgroupfs"
+hosts_dir      = ["/etc/containerd/certs.d", "/etc/docker/certs.d"]
+experimental   = true
+```
+
+### (Optional) 7. docker registry 설치
+```
+openssl req -x509 -newkey rsa:4096 -sha256 -days 3650 -nodes \
+  -keyout example.key -out example.crt -subj '/CN=example.com' \
+  -addext 'subjectAltName=DNS:example.com,DNS:example.net'
+
+openssl req -in domain.csr -text -noout
+
+$mkdir docker_reg_auth
+$docker run -it --entrypoint htpasswd \
+-v $PWD/docker_reg_auth:/auth \
+-w /auth registry:2 -Bbc /auth/htpasswd admin password
+
+
+nerdctl run -d -p 5000:5000 --restart=always --name registry \
+-v $PWD/docker_reg_certs:/certs -v /reg:/var/lib/registry \
+-e REGISTRY_HTTP_TLS_CERTIFICATE=/certs/domain.crt \
+-e REGISTRY_HTTP_TLS_KEY=/certs/domain.key \
+-e "REGISTRY_AUTH_HTPASSWD_REALM=Registry Realm"\
+-e REGISTRY_AUTH_HTPASSWD_PATH=/auth/htpasswd \
+-e REGISTRY_AUTH=htpasswd registry:2
+```
+
+### 8. minio 설치 
+```
+kubectl apply -f minio.yaml
+```
+
+## DEVOPS 클러스터 구성
+
+### 9. gitlab 설치
 ```
 helm repo add gitlab https://charts.gitlab.io
 $ helm upgrade -i gitlab gitlab/gitlab \
@@ -98,9 +159,7 @@ $ k get -n gitlab secret gitlab-gitlab-initial-root-password -ojsonpath='{.data.
 # Login argo and import projects
 - https://github.com/flytux/kw-mvn : Project Name > KW-MVN
 - https://github.com/flytux/kw-mvn-deploy : Project Name > KW-MVN-DEPLOY
-- main branch > deploy.yml 파일의 이미지 URL을 VM1:30005로 변경합니다.
-- docker.vm01 > 10.128.0.5:30005 로 변경 # VM1 IP:30005
-
+- main branch > deploy.yml 파일의 이미지 URL을 harbor.asan로 변경
 
 # Create CA certs for CA Issuer
 $ openssl genrsa -out ca.key 2048
@@ -110,7 +169,7 @@ $ kubectl create secret tls gitlab-ca --key ca.key --cert ca.crt -n gitlab
 # Create CA Issuer
 $ kubectl -n gitlab apply -f - <<"EOF"
 apiVersion: cert-manager.io/v1
-kind: Issuer
+kind: ClusterIssuer
 metadata:
   name: gitlab-ca-issuer
   namespace: gitlab
@@ -195,7 +254,7 @@ $ k run -it --rm curl --image curlimages/curl -- sh
 
 ```
 
-### 8. longhorn 설치
+### 10. longhorn 설치
 ```
 $ yum --setopt=tsflags=noscripts install iscsi-initiator-utils
 $ echo "InitiatorName=$(/sbin/iscsi-iname)" > /etc/iscsi/initiatorname.iscsi
@@ -211,74 +270,7 @@ $ helm install longhorn \
     --values longhorn-values.yaml
 ```
 
-### 9. harbor 설치
-```
-helm upgrade -i harbor charts/harbor-1.14.2.tgz\
-     -n harbor --create-namespace \
-     -f harbor-values.yaml
-
-# 사설인증서 등록
-kubectl get secrets harbor-ingress -o jsonpath="{.data['ca\.crt']}" | base64 -d > harbor.crt
-kubectl get secrets harbor-ingress -o jsonpath="{.data['tls\.crt']}" | base64 -d >> harbor.crt
-
-cp harbor.crt /etc/pki/ca-trust/source/anchors/ ( /usr/local/share/ca-certificates/ # ubuntu )
-update-ca-trust ( update-ca-certificates # ubuntu )
-
-curl -LO https://github.com/containerd/nerdctl/releases/download/v2.0.0-beta.4/nerdctl-2.0.0-beta.4-linux-amd64.tar.gz
-
-# nerdctl 설정
-vi /etc/nerdctl/nerdctl.toml
-
-debug          = false
-debug_full     = false
-address        = "unix:///run/k3s/containerd/containerd.sock"
-namespace      = "k8s.io"
-snapshotter    = "stargz"
-cgroup_manager = "cgroupfs"
-hosts_dir      = ["/etc/containerd/certs.d", "/etc/docker/certs.d"]
-experimental   = true
-```
-
-### 10. docker registry 설치
-```
-openssl req -x509 -newkey rsa:4096 -sha256 -days 3650 -nodes \
-  -keyout example.key -out example.crt -subj '/CN=example.com' \
-  -addext 'subjectAltName=DNS:example.com,DNS:example.net'
-
-openssl req -in domain.csr -text -noout
-
-$mkdir docker_reg_auth
-$docker run -it --entrypoint htpasswd \
--v $PWD/docker_reg_auth:/auth \
--w /auth registry:2 -Bbc /auth/htpasswd admin password
-
-
-nerdctl run -d -p 5000:5000 --restart=always --name registry \
--v $PWD/docker_reg_certs:/certs -v /reg:/var/lib/registry \
--e REGISTRY_HTTP_TLS_CERTIFICATE=/certs/domain.crt \
--e REGISTRY_HTTP_TLS_KEY=/certs/domain.key \
--e "REGISTRY_AUTH_HTPASSWD_REALM=Registry Realm"\
--e REGISTRY_AUTH_HTPASSWD_PATH=/auth/htpasswd \
--e REGISTRY_AUTH=htpasswd registry:2
-```
-
-### 10. rancher 모니터링 설치
-
-11. logging operator 설치
-
-12. loki stack 설치
-
-13. elasticsearch 설치
-
-14. velero 설치
-
-15. mariadb 설치
-
-16. postgresql 설치
-
-17. kafka 설치
-
-### 18. argocd 설치
+### 11. argocd 설치
 ```
 # install argocd
 $ kubectl create namespace argocd
@@ -359,7 +351,7 @@ spec:
 EOF
 ```
 
-### 19. gitlab runner 설치
+### 12. gitlab runner 설치
 ```
 # Setup runner and get runner token from KW-MVN project
 
@@ -371,11 +363,11 @@ EOF
 $ cat << EOF > gitlab-runner-values.yaml
 gitlabUrl: https://gitlab.asan
 
-runnerToken: glrt-wb_BLETYwEdVpP6qCyQX
+runnerToken: glrt-wb_BLETYwEdVpP6qCyQX # 저장한 토큰값 사용
 rbac:
   create: true
 
-certsSecretName: gitlab-runner-tls
+certsSecretName: gitlab-runner-tls # 생성한 gitlab 인증서/CA기반 secret
 
 runners:
   config: |
@@ -408,4 +400,24 @@ EOF
 $ helm upgrade -i gitlab-runner -f gitlab-runner-values.yaml gitlab/gitlab-runner
 ```
 
-20. sample 빌드 파이프라인 구성
+### 13. SAMPLE 빌드 파이프라인 구성
+
+
+### 14. rancher 모니터링 설치
+
+### 15. logging operator 설치
+
+### 16. loki stack 설치
+
+### 17. elasticsearch 설치
+
+### 18. velero 설치
+
+### 19. mariadb 설치
+
+### 20. postgresql 설치
+
+### 21. kafka 설치
+
+### 22. NATS 설치
+
