@@ -1,21 +1,23 @@
 expose:
+  tls:
+    certSource: secret
+    secret:
+      secretName: "harbor-ingress-tls"
   ingress:
     hosts:
       core: harbor.asan
 externalURL: https://harbor.asan
 
 persistence:
-  enabled: true
-  resourcePolicy: "keep"
   persistentVolumeClaim:
     registry:
-      storageClass: "longhorn"
+      storageClass: "nfs-client"
     jobservice:
       jobLog:
-        storageClass: "longhorn"
+        storageClass: "nfs-client"
     database:
-      storageClass: "longhorn"
+      storageClass: "nfs-client"
     redis:
-      storageClass: "longhorn"
+      storageClass: "nfs-client"
     trivy:
-      storageClass: "longhorn"
+      storageClass: "nfs-client"
