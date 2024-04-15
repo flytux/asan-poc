@@ -74,38 +74,19 @@ kubectl patch storageclass nfs-client -n kube-system -p '{"metadata": {"annotati
 #### 6. harbor 설치
 ```
 # 사설 인증서 생성
-$ openssl genrsa -out ca.key 2048
-$ openssl req -new -x509 -days 3650 -key ca.key -subj "/C=KR/ST=SE/L=SE/O=Kubeworks/CN=KW Root CA" -out ca.crt
-
-$ openssl genrsa -out harbor.asan.key 4096
-$ openssl req -sha512 -new \
-    -subj "/C=CN/ST=Seoul/L=Seoul/O=Asan/OU=Asan/CN=Asan" \
-    -key harbor.asan.key \
-    -out harbor.asan.csr
-	
-$ cat > v3.ext <<-EOF
-authorityKeyIdentifier=keyid,issuer
-basicConstraints=CA:FALSE
-keyUsage = digitalSignature, nonRepudiation, keyEncipherment, dataEncipherment
-extendedKeyUsage = serverAuth
-subjectAltName = @alt_names
-
-[alt_names]
-DNS.1=harbor.asan
-EOF
-
-$ openssl x509 -req -sha512 -days 3650 -extfile v3.ext -CA ca.crt -CAkey ca.key -CAcreateserial -in harbor.asan.csr -out harbor.asan.crt
+$ openssl req -x509 -newkey rsa:4096 -sha256 -days 3650 -nodes \
+  -keyout harbor.key -out harbor.crt -subj '/CN=harbor.asan' \
+  -addext 'subjectAltName=DNS:harbor.asan'
 
 $ kubectl create ns harbor
-$ kubectl create secret tls harbor-ingress-tls --key harbor.asan.key --cert harbor.asan.crt -n harbor
+$ kubectl create secret tls harbor-ingress-tls --key harbor.key --cert harbor.crt -n harbor
 
 # harbor 설치
 helm upgrade -i harbor charts/harbor-1.14.2.tgz\
      -n harbor -f harbor-values.yaml
 
-# 사설인증서 등록
-
-cp harbor.asan.crt harbor.asan.key /etc/pki/ca-trust/source/anchors/ ( /usr/local/share/ca-certificates/ # ubuntu )
+# 사설인증서 등록 (워커노드에 전부 적용)
+cp harbor.crt harbor.key /etc/pki/ca-trust/source/anchors/ ( /usr/local/share/ca-certificates/ # ubuntu )
 update-ca-trust ( update-ca-certificates # ubuntu )
 
 curl -LO https://github.com/containerd/nerdctl/releases/download/v2.0.0-beta.4/nerdctl-2.0.0-beta.4-linux-amd64.tar.gz
@@ -166,24 +147,10 @@ $ k get -n gitlab secret gitlab-gitlab-initial-root-password -ojsonpath='{.data.
 # Delete default ingress gitlab-webservice
 $ k delete ingress gitlab-webservice-default -n gitlab
 
-# Gitlab Runner 등록을 위한 사설인증서 생성하여 ingress에 연결결
-$ openssl genrsa -out tls.key 2048
-
-$ openssl req -sha512 -new -subj "/C=CN/ST=Seoul/L=Seoul/O=Asan/OU=Asan/CN=Asan" -key gitlab.key -out gitlab.csr
-	
-$ cat > v3.ext <<-EOF
-authorityKeyIdentifier=keyid,issuer
-basicConstraints=CA:FALSE
-keyUsage = digitalSignature, nonRepudiation, keyEncipherment, dataEncipherment
-extendedKeyUsage = serverAuth
-subjectAltName = @alt_names
-
-[alt_names]
-DNS.1=gitlab.asan
-EOF
-
-$ openssl x509 -req -sha512 -days 3650 -extfile v3.ext -CA ca.crt -CAkey ca.key -CAcreateserial -in tls.csr -out gitlab.crt
-	
+# Gitlab Runner 등록을 위한 사설인증서 생성하여 ingress에 연결
+$ openssl req -x509 -newkey rsa:4096 -sha256 -days 3650 -nodes \
+  -keyout gitlab.key -out gitlab.crt -subj '/CN=gitlab.asan' \
+  -addext 'subjectAltName=DNS:gitlab.asan'	
 $ kubectl create secret tls gitlab-ingress-tls --key gitlab.key --cert gitlab.crt -n gitlab
 
 # Create Ingress 
@@ -213,17 +180,14 @@ spec:
 EOF
 
 
-# Add selfsigned CA crt to gitlab runner via secret
 # add to /etc/hosts 
 cat << EOF | sudo tee -a /etc/hosts
 192.168.122.21 gitlab.asan
 EOF
 
-# Gitlab Runner에서 사용할 사설인증서 시크릿 생성
-$ cat gitlab.crt > gitlab.runner.crt
-$ cat ca.crt >> gitlab.runner.crt
-
-$ k create secret generic gitlab-runner-tls --from-file=gitlab.runner.crt  -n gitlab
+# Gitlab Runner 용 사설인증서 생성
+$ openssl s_client -showcerts -connect gitlab.asan:443 -servername gitlab.asan < /dev/null 2>/dev/null | openssl x509 -outform PEM > gitlab.asan.crt
+$ k create secret generic gitlab-runner-tls --from-file=gitlab.asan.crt  -n gitlab
 
 # add in cluster dns gitlab.asan to coredns
 $ k edit cm -n kube-system rke2-coredns-rke2-coredns
@@ -258,20 +222,52 @@ $ k run -it --rm curl --image curlimages/curl -- sh
 
 ```
 
-#### 10. longhorn 설치
+#### 10. gitlab runner 설치
 ```
-$ yum --setopt=tsflags=noscripts install iscsi-initiator-utils
-$ echo "InitiatorName=$(/sbin/iscsi-iname)" > /etc/iscsi/initiatorname.iscsi
-$ systemctl enable iscsid
-$ systemctl start iscsid
+# Setup runner and get runner token from KW-MVN project
+# https://gitlab.asan/argo/kw-mvn/-/runners/new
 
-# apt -y install open-iscsi # Ubuntu
+# Configuration > Run untagged jobs 체크 > Submit
+# Copy token glrt-wb_BLETYwEdVpP6qCyQX
 
-$ helm install longhorn \
-    charts/longhorn-1.6.1.tgz \
-    --namespace longhorn-system \
-    --create-namespace \
-    --values longhorn-values.yaml
+$ cat << EOF > gitlab-runner-values.yaml
+gitlabUrl: https://gitlab.asan
+
+runnerToken: glrt-wb_BLETYwEdVpP6qCyQX # 저장한 토큰값 사용
+rbac:
+  create: true
+
+certsSecretName: gitlab-runner-tls # 생성한 gitlab 인증서/CA기반 secret
+
+runners:
+  config: |
+    [[runners]]
+      [runners.kubernetes]
+        namespace = "{{.Release.Namespace}}"
+        image = "ubuntu:20.04"
+    [[runners.kubernetes.volumes.pvc]]
+      mount_path = "/cache/maven.repository"
+      name = "gitlab-runner-cache-pvc"
+EOF
+
+# create gitlab runner cache pvc
+$ kubectl -n gitlab apply -f - <<"EOF"
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: gitlab-runner-cache-pvc
+  namespace: gitlab
+spec:
+  storageClassName: nfs-client
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+EOF
+
+# Gitlab Runner 설치
+$ helm upgrade -i gitlab-runner -f gitlab-runner-values.yaml charts/gitlab-runner-0.63.0.tgz -n gitlab
 ```
 
 #### 11. argocd 설치
@@ -355,56 +351,7 @@ spec:
 EOF
 ```
 
-#### 12. gitlab runner 설치
-```
-# Setup runner and get runner token from KW-MVN project
-
-# https://gitlab.asan/argo/kw-mvn/-/runners/new
-
-# Configuration > Run untagged jobs 체크 > Submit
-# Copy token glrt-wb_BLETYwEdVpP6qCyQX
-
-$ cat << EOF > gitlab-runner-values.yaml
-gitlabUrl: https://gitlab.asan
-
-runnerToken: glrt-wb_BLETYwEdVpP6qCyQX # 저장한 토큰값 사용
-rbac:
-  create: true
-
-certsSecretName: gitlab-runner-tls # 생성한 gitlab 인증서/CA기반 secret
-
-runners:
-  config: |
-    [[runners]]
-      [runners.kubernetes]
-        namespace = "{{.Release.Namespace}}"
-        image = "ubuntu:16.04"
-    [[runners.kubernetes.volumes.pvc]]
-      mount_path = "/cache/maven.repository"
-      name = "gitlab-runner-cache-pvc"
-EOF
-
-# create gitlab runner cache pvc
-$ kubectl -n gitlab apply -f - <<"EOF"
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: gitlab-runner-cache-pvc
-  namespace: gitlab
-spec:
-  storageClassName: nfs-client
-  accessModes:
-  - ReadWriteOnce
-  resources:
-    requests:
-      storage: 1Gi
-EOF
-
-# Gitlab Runner 설치
-$ helm upgrade -i gitlab-runner -f gitlab-runner-values.yaml charts/gitlab-runner-0.63.0.tgz -n gitlab
-```
-
-#### 13. SAMPLE 빌드 파이프라인 구성
+#### 12. SAMPLE 빌드 파이프라인 구성
 
 ```
 variables:
@@ -481,6 +428,22 @@ sync-argocd:
 
     - argocd app sync $ARGO_APP_NAME --insecure
     - argocd app wait $ARGO_APP_NAME --sync --health --operation --insecure
+```
+
+#### 13. longhorn 설치
+```
+$ yum --setopt=tsflags=noscripts install iscsi-initiator-utils
+$ echo "InitiatorName=$(/sbin/iscsi-iname)" > /etc/iscsi/initiatorname.iscsi
+$ systemctl enable iscsid
+$ systemctl start iscsid
+
+# apt -y install open-iscsi # Ubuntu
+
+$ helm install longhorn \
+    charts/longhorn-1.6.1.tgz \
+    --namespace longhorn-system \
+    --create-namespace \
+    --values longhorn-values.yaml
 ```
 
 #### 14. rancher 모니터링 설치
