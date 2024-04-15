@@ -5,8 +5,6 @@
 - DEVSOP 클러스터는 GitLab, ArgoCD 등 DEVOPS 툴체인과 애플리케이션 개발 및 배포 환경, DBMS 및 인프라 서비스, 모니터링, 로깅 환경을 구성한다.
   
 ---
-
----
 ```bash
 
 # selinux disable
@@ -32,7 +30,7 @@ curl -LO https://github.com/containerd/nerdctl/releases/download/v2.0.0-beta.4/n
 kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.10.0/cert-manager.yaml
 ```
 
-### 3. rancher 설치
+#### 3. rancher 설치
 ```
 helm repo add rancher-latest https://releases.rancher.com/server-charts/latest 
 
@@ -42,13 +40,13 @@ helm upgrade -i rancher charts/rancher-2.8.3.tgz \
 --create-namespace -n cattle-system
 ```
 
-### 4. local-path-storage 설치
+#### 4. local-path-storage 설치
 ```
 kubectl apply -f https://raw.githubusercontent.com/rancher/local-path-provisioner/v0.0.26/deploy/local-path-storage.yaml
 kubectl patch storageclass local-path -p '{"metadata": {"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}'
 ```
 
-### 5. nfs 클라이언트 설치
+#### 5. nfs 클라이언트 설치
 ```
 nfs 서버 설치
 
@@ -71,7 +69,7 @@ helm upgrade -i nfs-client \
      -f nfs-values.yaml -n kube-system
 ```
 
-### 6. harbor 설치
+#### 6. harbor 설치
 ```
 helm upgrade -i harbor charts/harbor-1.14.2.tgz\
      -n harbor --create-namespace \
@@ -99,7 +97,7 @@ hosts_dir      = ["/etc/containerd/certs.d", "/etc/docker/certs.d"]
 experimental   = true
 ```
 
-### (Optional) 7. docker registry 설치
+#### (Optional) 7. docker registry 설치
 ```
 openssl req -x509 -newkey rsa:4096 -sha256 -days 3650 -nodes \
   -keyout example.key -out example.crt -subj '/CN=example.com' \
@@ -122,14 +120,14 @@ nerdctl run -d -p 5000:5000 --restart=always --name registry \
 -e REGISTRY_AUTH=htpasswd registry:2
 ```
 
-### 8. minio 설치 
+#### 8. minio 설치 
 ```
 kubectl apply -f minio.yaml
 ```
 
 ## DEVOPS 클러스터 구성
 
-### 9. gitlab 설치
+#### 9. gitlab 설치
 ```
 helm repo add gitlab https://charts.gitlab.io
 $ helm upgrade -i gitlab gitlab/gitlab \
@@ -146,7 +144,7 @@ $ helm upgrade -i gitlab gitlab/gitlab \
 # get root initial password
 $ k get -n gitlab secret gitlab-gitlab-initial-root-password -ojsonpath='{.data.password}' | base64 -d
 
-# login gitlab.kw01 as root / %YOUR_INITIAL_PASSWORD%
+# login gitlab.asan as root / %YOUR_INITIAL_PASSWORD%
 # https://gitlab.kw01/admin/application_settings/general > visibility & access controls > import sources > Repository By URL
 
 # create User with YOUR ID / PASSWD
@@ -254,7 +252,7 @@ $ k run -it --rm curl --image curlimages/curl -- sh
 
 ```
 
-### 10. longhorn 설치
+#### 10. longhorn 설치
 ```
 $ yum --setopt=tsflags=noscripts install iscsi-initiator-utils
 $ echo "InitiatorName=$(/sbin/iscsi-iname)" > /etc/iscsi/initiatorname.iscsi
@@ -270,7 +268,7 @@ $ helm install longhorn \
     --values longhorn-values.yaml
 ```
 
-### 11. argocd 설치
+#### 11. argocd 설치
 ```
 # install argocd
 $ kubectl create namespace argocd
@@ -351,7 +349,7 @@ spec:
 EOF
 ```
 
-### 12. gitlab runner 설치
+#### 12. gitlab runner 설치
 ```
 # Setup runner and get runner token from KW-MVN project
 
@@ -400,24 +398,32 @@ EOF
 $ helm upgrade -i gitlab-runner -f gitlab-runner-values.yaml gitlab/gitlab-runner
 ```
 
-### 13. SAMPLE 빌드 파이프라인 구성
+#### 13. SAMPLE 빌드 파이프라인 구성
 
 
-### 14. rancher 모니터링 설치
+#### 14. rancher 모니터링 설치
 
-### 15. logging operator 설치
 
-### 16. loki stack 설치
+#### 15. logging operator 설치
 
-### 17. elasticsearch 설치
 
-### 18. velero 설치
+#### 16. loki stack 설치
 
-### 19. mariadb 설치
 
-### 20. postgresql 설치
+#### 17. elasticsearch 설치
 
-### 21. kafka 설치
 
-### 22. NATS 설치
+#### 18. velero 설치
+
+
+#### 19. mariadb 설치
+
+
+#### 20. postgresql 설치
+
+
+#### 21. kafka 설치
+
+
+#### 22. NATS 설치
 
