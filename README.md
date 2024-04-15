@@ -43,7 +43,7 @@ helm upgrade -i rancher charts/rancher-2.8.3.tgz \
 #### 4. local-path-storage 설치
 ```
 kubectl apply -f https://raw.githubusercontent.com/rancher/local-path-provisioner/v0.0.26/deploy/local-path-storage.yaml
-kubectl patch storageclass local-path -p '{"metadata": {"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}'
+
 ```
 
 #### 5. nfs 클라이언트 설치
@@ -67,6 +67,8 @@ exportfs -v
 helm upgrade -i nfs-client \
      charts/nfs-subdir-external-provisioner-4.0.18.tgz \
      -f nfs-values.yaml -n kube-system
+
+kubectl patch storageclass nfs-client -n kube-system -p '{"metadata": {"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}'
 ```
 
 #### 6. harbor 설치
@@ -185,8 +187,8 @@ metadata:
   namespace: gitlab
 spec:
   ingressClassName: nginx
-  rules:
-  - host: gitlab.asan
+  rules:xxx
+  - host: gitlab.asank get 
     http:
       paths:
       - backend:
@@ -360,7 +362,7 @@ runnerToken: glrt-wb_BLETYwEdVpP6qCyQX # 저장한 토큰값 사용
 rbac:
   create: true
 
-certsSecretName: gitlab-runner-tls # 생성한 gitlab 인증서/CA기반 secret
+certsSecretName: gitlab-crt # 생성한 gitlab 인증서/CA기반 secret
 
 runners:
   config: |
@@ -390,7 +392,7 @@ spec:
 EOF
 
 # Gitlab Runner 설치
-$ helm upgrade -i gitlab-runner -f gitlab-runner-values.yaml gitlab/gitlab-runner
+$ helm upgrade -i gitlab-runner -f gitlab-runner-values.yaml charts/gitlab-runner-0.63.0.tgz -n gitlab
 ```
 
 #### 13. SAMPLE 빌드 파이프라인 구성
