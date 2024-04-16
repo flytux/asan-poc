@@ -655,13 +655,22 @@ $ k exec -it $(k get pods -l app=nginx -o name) cat /var/log/nginx/access.log
 ```
 
 #### 18. mariadb 설치
-
+```
+$ helm upgrade -i mariadb charts/mariadb-18.0.2.tgz -n mariadb --create-namespace
+```
 
 #### 19. postgresql 설치
-
+```
+$ helm upgrade -i postgresql charts/postgresql-15.2.5.tgz -n postgresql --create-namespace
+```
 
 #### 20. kafka 설치
-
+```
+$ helm upgrade -i kafka -n stream charts/kafka-28.0.4.tgz --create-namespace
+```
 
 #### 21. NATS 설치
+```
 
+```
+---
