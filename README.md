@@ -606,9 +606,53 @@ $ helm upgrade -i log-generator -n logging charts/log-generator-0.7.0.tgz
 # Discover > Create data view > fluentd index 선택택
 ```
 
-
 #### 17. velero 설치
 
+```
+# external snapshotter 설치
+$ k create -f charts/external-snapshotter/config/crd/
+$ k create -f charts/external-snapshotter/deploy/kubernetes/snapshot-controller/
+
+# volume snapshot class 생성
+$ kubectl -n kube-system apply -f - <<"EOF"
+kind: VolumeSnapshotClass
+apiVersion: snapshot.storage.k8s.io/v1
+metadata:
+  name: longhorn-snapshot-vsc
+  labels:
+    velero.io/csi-volumesnapshot-class: "true"
+driver: driver.longhorn.io
+deletionPolicy: Delete
+parameters:
+  type: bak
+EOF
+
+$ cp charts/velero /usr/local/bin
+
+# credential 생성
+$ cat << EOF >> credential-velero
+[default]
+aws_access_key_id = minio
+aws_secret_access_key = minio123
+EOF
+
+$ velero install --provider velero.io/aws \
+ --bucket velero --image velero/velero:v1.11.0 \
+ --plugins velero/velero-plugin-for-aws:v1.7.0,velero/velero-plugin-for-csi:v0.4.0 \
+ --backup-location-config region=minio-default,s3ForcePathStyle="true",s3Url=http://minio.minio:9000 \
+ --features=EnableCSI --snapshot-location-config region=minio-default \
+ --use-volume-snapshots=true --secret-file=./credential-velero
+
+$ k apply -f nginx-example.yaml
+$ k run --rm -it curly --image=curlimages/curl sh
+$ curl -v my-nginx.nginx-example
+
+$ k delete ns nginx-example
+
+$ velero restore create --from-backup nginx
+$ kn nginx-example
+$ k exec -it $(k get pods -l app=nginx -o name) cat /var/log/nginx/access.log
+```
 
 #### 18. mariadb 설치
 
