@@ -127,6 +127,7 @@ $ helm upgrade -i gitlab charts/gitlab-7.10.2.tgz \
 --set nginx-ingress.enabled=false \
 --set gitlab-runner.install=false \
 --set prometheus.install=false \
+--set registry.enabled=false \
 -n gitlab --create-namespace
 
 # root 사용자 초기 비밀번호 확인
