@@ -451,14 +451,160 @@ $ helm install longhorn \
 
 #### 13. rancher 모니터링 설치
 
+```
+# Rancher 로그인 > Cluster Tools > Monitoring 설치
+```
 
-#### 14. logging operator 설치
+#### 14. loki stack 설치
 
+```
+$ helm upgrade -i loki loki-stack-2.10.2.tgz -n loki --create-namespace
 
-#### 15. loki stack 설치
+# 그라파나 로그인 admin / prom-operator
+# Loki 데이터 소스 추가 (http://loki.loki:3100)
+# Explorer Log (https://rancher.asan/api/v1/namespaces/cattle-monitoring-system/services/http:rancher-monitoring-grafana:80/proxy/explore)
+```
 
+#### 15. elasticsearch 설치
 
-#### 16. elasticsearch 설치
+```
+# Elasticsearch operator 설치 (crd, operator)
+$ kubectl create -f https://download.elastic.co/downloads/eck/2.11.1/crds.yaml
+$ kubectl apply -f https://download.elastic.co/downloads/eck/2.11.1/operator.yaml
+
+# elasticsearch 설치
+$ cat <<EOF | kubectl apply -f -
+apiVersion: elasticsearch.k8s.elastic.co/v1
+kind: Elasticsearch
+metadata:
+  name: quickstart
+spec:
+  version: 8.13.2
+  nodeSets:
+  - name: default
+    count: 1
+    config:
+      node.store.allow_mmap: false
+EOF
+
+# check elastic search
+$ kubectl get elasticsearch
+
+# install kibana
+
+$ cat <<EOF | kubectl apply -f -
+apiVersion: kibana.k8s.elastic.co/v1
+kind: Kibana
+metadata:
+  name: quickstart
+spec:
+  version: 8.13.2
+  count: 1
+  elasticsearchRef:
+    name: quickstart
+EOF
+
+$ kubectl get secret quickstart-es-elastic-user -o=jsonpath='{.data.elastic}' | base64 --decode; echo
+
+$ cat <<EOF | kubectl apply -f -
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: kibana
+  annotations:
+    nginx.ingress.kubernetes.io/backend-protocol: HTTPS
+    nginx.ingress.kubernetes.io/proxy-ssl-verify: 'false'
+  namespace: elastic-system
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: kibana.asan
+      http:
+        paths:
+          - backend:
+              service:
+                name: quickstart-kb-http
+                port:
+                  number: 5601
+            path: /
+            pathType: ImplementationSpecific
+EOF
+```
+
+#### 16. logging operator 설치
+
+```
+# logging operatopr 설치
+$ helm upgrade -i logging-operator -n logging charts/logging-operator-4.6.0.tgz --create-namespace
+
+# logging 생성 - 로그 관리 단위
+$ kubectl -n logging apply -f - <<"EOF"
+apiVersion: logging.banzaicloud.io/v1beta1
+kind: Logging
+metadata:
+  name: default-logging-simple
+spec:
+  fluentd: {}
+  fluentbit: {}
+  controlNamespace: logging
+EOF
+
+# elastic-user secret 생성
+$ k get secret -n elastic-system quickstart-es-elastic-user -o yaml |  sed  '/^  namespace:.*/d' | k apply -f -
+
+# create ouput
+$ kubectl -n logging apply -f - <<"EOF"
+apiVersion: logging.banzaicloud.io/v1beta1
+kind: Output
+metadata:
+  name: es-output
+spec:
+  elasticsearch:
+    host: quickstart-es-http.elastic-system
+    port: 9200
+    scheme: https
+    ssl_verify: false
+    ssl_version: TLSv1_2
+    user: elastic
+    password:
+      valueFrom:
+        secretKeyRef:
+          name: quickstart-es-elastic-user
+          key: elastic
+    buffer:
+      timekey: 1m
+      timekey_wait: 30s
+      timekey_use_utc: true
+EOF
+
+# create flow
+$ kubectl -n logging apply -f - <<"EOF"
+apiVersion: logging.banzaicloud.io/v1beta1
+kind: Flow
+metadata:
+  name: es-flow
+spec:
+  filters:
+    - tag_normaliser: {}
+    - parser:
+        remove_key_name_field: true
+        reserve_data: true
+        parse:
+          type: nginx
+  match:
+     - select:
+         labels:
+           app.kubernetes.io/name: log-generator
+  localOutputRefs:
+    - es-output
+EOF
+
+# install log-generator
+$ helm upgrade -i log-generator -n logging charts/log-generator-0.7.0.tgz
+
+# login elasticsearch (https://kibana.asan/)
+# Discover > Create data view > fluentd index 선택택
+```
 
 
 #### 17. velero 설치
