@@ -440,6 +440,8 @@ $ systemctl start iscsid
 
 # apt -y install open-iscsi # Ubuntu
 
+$ k create -f minio-secret.yaml
+
 $ helm install longhorn \
     charts/longhorn-1.6.1.tgz \
     --namespace longhorn-system \
