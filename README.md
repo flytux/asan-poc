@@ -19,22 +19,22 @@ $ sed -i --follow-symlinks 's/SELINUX=.*/SELINUX=disabled/g' /etc/sysconfig/seli
 # tf apply -auto-approve
 https://github.com/flytux/terraform-kube
 
-curl -LO https://dl.k8s.io/release/v1.28.8/bin/linux/amd64/kubectl
-curl -LO https://github.com/containerd/nerdctl/releases/download/v2.0.0-beta.4/nerdctl-2.0.0-beta.4-linux-amd64.tar.gz
+$ curl -LO https://dl.k8s.io/release/v1.28.8/bin/linux/amd64/kubectl
+$ curl -LO https://github.com/containerd/nerdctl/releases/download/v2.0.0-beta.4/nerdctl-2.0.0-beta.4-linux-amd64.tar.gz
 ```
 
 ## MGMT 클러스터 구성
 
 #### 2. cert-manager 설치
 ```
-kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.10.0/cert-manager.yaml
+$ kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.10.0/cert-manager.yaml
 ```
 
 #### 3. rancher 설치
 ```
-helm repo add rancher-latest https://releases.rancher.com/server-charts/latest 
+$ helm repo add rancher-latest https://releases.rancher.com/server-charts/latest 
 
-helm upgrade -i rancher charts/rancher-2.8.3.tgz \
+$ helm upgrade -i rancher charts/rancher-2.8.3.tgz \
 --set hostname=rancher.asan --set bootstrapPassword=admin \
 --set replicas=1 --set global.cattle.psp.enabled=false \
 --create-namespace -n cattle-system
@@ -42,7 +42,7 @@ helm upgrade -i rancher charts/rancher-2.8.3.tgz \
 
 #### 4. local-path-storage 설치
 ```
-kubectl apply -f https://raw.githubusercontent.com/rancher/local-path-provisioner/v0.0.26/deploy/local-path-storage.yaml
+$ kubectl apply -f https://raw.githubusercontent.com/rancher/local-path-provisioner/v0.0.26/deploy/local-path-storage.yaml
 
 ```
 
@@ -64,7 +64,7 @@ vi /etc/exports
 systemctl restart nfs-server
 exportfs -v
 
-helm upgrade -i nfs-client \
+$ helm upgrade -i nfs-client \
      charts/nfs-subdir-external-provisioner-4.0.18.tgz \
      -f nfs-values.yaml -n kube-system
 
@@ -82,17 +82,36 @@ $ kubectl create ns harbor
 $ kubectl create secret tls harbor-ingress-tls --key harbor.key --cert harbor.crt -n harbor
 
 # harbor 설치
-helm upgrade -i harbor charts/harbor-1.14.2.tgz\
+$ helm upgrade -i harbor charts/harbor-1.14.2.tgz\
      -n harbor -f harbor-values.yaml
 
 # 사설인증서 등록 (워커노드에 전부 적용)
-cp harbor.crt harbor.key /etc/pki/ca-trust/source/anchors/ ( /usr/local/share/ca-certificates/ # ubuntu )
+$ cp harbor.crt harbor.key /etc/pki/ca-trust/source/anchors/ ( /usr/local/share/ca-certificates/ # ubuntu )
 update-ca-trust ( update-ca-certificates # ubuntu )
 
-curl -LO https://github.com/containerd/nerdctl/releases/download/v2.0.0-beta.4/nerdctl-2.0.0-beta.4-linux-amd64.tar.gz
+# rke2 서버에 Private Registy 설정
+$  cat << EOF > /etc/rancher/rke2/registries.yaml
+mirrors:
+  docker.io:
+    endpoint:
+      - "https://harbor.asan"
+configs:
+  "harbor.asan":
+    auth:
+      username: admin # this is the registry username
+      password: Harbor12345 # this is the registry password
+    tls:
+      cert_file: /usr/local/share/ca-certificates/harbor.crt
+      key_file: /usr/local/share/ca-certificates/harbor.key
+EOF
+
+# rke2 서버 재기동
+$ systemctl restart rke2-server
+
+$ curl -LO https://github.com/containerd/nerdctl/releases/download/v2.0.0-beta.4/nerdctl-2.0.0-beta.4-linux-amd64.tar.gz
 
 # nerdctl 설정
-vi /etc/nerdctl/nerdctl.toml
+cat << EOF > /etc/nerdctl/nerdctl.toml
 
 debug          = false
 debug_full     = false
@@ -102,15 +121,16 @@ snapshotter    = "stargz"
 cgroup_manager = "cgroupfs"
 hosts_dir      = ["/etc/containerd/certs.d", "/etc/docker/certs.d"]
 experimental   = true
+EOF
 
 # harbor 접속
-nerdctl login harbor.asan # admin/Harbor12345
+$ nerdctl login harbor.asan # admin/Harbor12345
 
 ```
 
 #### 7. minio 설치 
 ```
-kubectl apply -f minio.yaml
+$ kubectl apply -f minio.yaml
 ```
 
 ## DEVOPS 클러스터 구성
@@ -357,16 +377,15 @@ EOF
 ```
 variables:
   MAVEN_OPTS: "-Dmaven.repo.local=/cache/maven.repository"
-  IMAGE_URL: "10.128.0.5:30005/kw-mvn"
-  DEPLOY_REPO_URL: "https://gitlab.kw01/argo/kw-mvn-deploy.git"
-  DEPLOY_REPO_CREDENTIALS: "https://argo:abcd!234@gitlab.kw01/argo/kw-mvn-deploy.git"
+  IMAGE_URL: "harbor.asan/library/kw-mvn"
+  DEPLOY_REPO_URL: "https://gitlab.asan/argo/kw-mvn-deploy.git"
+  DEPLOY_REPO_CREDENTIALS: "https://argo:abcd!234@gitlab.asan/argo/kw-mvn-deploy.git"
   REGISTRY_USER_ID: "admin"
-  REGISTRY_USER_PASSWORD: "1"
+  REGISTRY_USER_PASSWORD: "Harbor12345"
   ARGO_URL: "argocd-server.argocd"
   ARGO_USER_ID: "admin"
-  ARGO_USER_PASSWORD: "CWJjH2Fb278mmuDx"
+  ARGO_USER_PASSWORD: "VO1FnBnErFQSGgSL"
   ARGO_APP_NAME: "kw-mvn"
-
 
 stages:
   - maven-jib-build
