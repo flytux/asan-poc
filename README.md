@@ -82,6 +82,8 @@ $ openssl req -x509 -newkey rsa:4096 -sha256 -days 3650 -nodes \
 $ kubectl create ns harbor
 $ kubectl create secret tls harbor-ingress-tls --key harbor.key --cert harbor.crt -n harbor
 
+# ingress에 해당 secret를 tls로 등록해주고, domain 이름을 지정 harbor.asan
+
 # harbor 설치
 $ helm upgrade -i harbor charts/harbor-1.14.2.tgz\
      -n harbor -f harbor-values.yaml
@@ -110,6 +112,30 @@ EOF
 $ systemctl restart rke2-server
 
 $ curl -LO https://github.com/containerd/nerdctl/releases/download/v2.0.0-beta.4/nerdctl-2.0.0-beta.4-linux-amd64.tar.gz
+
+
+# containerd 설정 추가
+/etc/containerd/config.toml
+ 
+ [plugins]
+  [plugins."io.containerd.grpc.v1.cri"]
+   [plugins."io.containerd.grpc.v1.cri".containerd]
+      [plugins."io.containerd.grpc.v1.cri".containerd.runtimes]
+        [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc]
+          runtime_type = "io.containerd.runc.v2"
+          [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc.options]
+            SystemdCgroup = true
+      [plugins."io.containerd.grpc.v1.cri".registry]
+        [plugins."io.containerd.grpc.v1.cri".registry.mirrors]
+          [plugins."io.containerd.grpc.v1.cri".registry.mirrors."harbor.asan"]
+            endpoint = ["https://harbor.asan"]
+            [plugins."io.containerd.grpc.v1.cri".registry.configs."harbor.asan".tls]
+              ca_file = "/etc/pki/ca-trust/source/anchors/harbor.crt"
+              cert_file = "/etc/pki/ca-trust/source/anchors/harbor.crt"
+              key_file = "/etc/pki/ca-trust/source/anchors/harbor.key"
+
+# restart containerd
+$ systemctl restart containerd
 
 # nerdctl 설정
 cat << EOF > /etc/nerdctl/nerdctl.toml
