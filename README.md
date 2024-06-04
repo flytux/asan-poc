@@ -34,7 +34,7 @@ $ kubectl apply -f https://github.com/cert-manager/cert-manager/releases/downloa
 ```
 $ helm repo add rancher-latest https://releases.rancher.com/server-charts/latest 
 
-$ helm upgrade -i rancher charts/rancher-2.8.3.tgz \
+$ helm upgrade -i rancher charts/rancher-2.8.4.tgz \
 --set hostname=rancher.asan --set bootstrapPassword=admin \
 --set replicas=1 --set global.cattle.psp.enabled=false \
 --create-namespace -n cattle-system
