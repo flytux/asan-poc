@@ -106,10 +106,13 @@ $ helm upgrade -i harbor charts/harbor-1.14.2.tgz\
      -n harbor -f harbor-values.yaml
 
 # 사설인증서 등록 (워커노드에 전부 적용)
+$ scp -i .ssh/id_rsa harbor.crt root@192.168.122.11:/root
+$ scp -i .ssh/id_rsa harbor.key root@192.168.122.11:/root
+
 $ cp harbor.crt harbor.key /usr/local/share/ca-certificates/ # ubuntu 
 $ update-ca-certificates # ubuntu
 
-# rke2 서버에 Private Registy 설정
+# rke2 서버에 Private Registry 설정
 $  cat << EOF > /etc/rancher/rke2/registries.yaml
 mirrors:
   docker.io:
@@ -468,7 +471,7 @@ sync-argocd:
     - argocd app wait $ARGO_APP_NAME --sync --health --operation --insecure
 ```
 
-#### 12. longhorn 설치
+#### 12. longhorn 설치 (Skip)
 ```
 $ yum --setopt=tsflags=noscripts install iscsi-initiator-utils
 $ echo "InitiatorName=$(/sbin/iscsi-iname)" > /etc/iscsi/initiatorname.iscsi
