@@ -7,10 +7,6 @@
 ---
 ```bash
 
-# selinux disable
-$ setenforce 0
-$ sed -i --follow-symlinks 's/SELINUX=.*/SELINUX=disabled/g' /etc/sysconfig/selinux
-
 # iptables 설치 확인
 ```
 
@@ -18,9 +14,6 @@ $ sed -i --follow-symlinks 's/SELINUX=.*/SELINUX=disabled/g' /etc/sysconfig/seli
 ```
 # tf apply -auto-approve
 https://github.com/flytux/terraform-kube/rke2
-
-$ curl -LO https://dl.k8s.io/release/v1.28.8/bin/linux/amd64/kubectl
-$ curl -LO https://github.com/containerd/nerdctl/releases/download/v2.0.0-beta.4/nerdctl-2.0.0-beta.4-linux-amd64.tar.gz
 ```
 
 ## MGMT 클러스터 구성
@@ -113,8 +106,8 @@ $ helm upgrade -i harbor charts/harbor-1.14.2.tgz\
      -n harbor -f harbor-values.yaml
 
 # 사설인증서 등록 (워커노드에 전부 적용)
-$ cp harbor.crt harbor.key /etc/pki/ca-trust/source/anchors/ ( /usr/local/share/ca-certificates/ # ubuntu )
-update-ca-trust ( update-ca-certificates # ubuntu )
+$ cp harbor.crt harbor.key /usr/local/share/ca-certificates/ # ubuntu 
+$ update-ca-certificates # ubuntu
 
 # rke2 서버에 Private Registy 설정
 $  cat << EOF > /etc/rancher/rke2/registries.yaml
@@ -134,32 +127,6 @@ EOF
 
 # rke2 서버 재기동
 $ systemctl restart rke2-server
-
-$ curl -LO https://github.com/containerd/nerdctl/releases/download/v2.0.0-beta.4/nerdctl-2.0.0-beta.4-linux-amd64.tar.gz
-
-
-# containerd 설정 추가
-/etc/containerd/config.toml
- 
- [plugins]
-  [plugins."io.containerd.grpc.v1.cri"]
-   [plugins."io.containerd.grpc.v1.cri".containerd]
-      [plugins."io.containerd.grpc.v1.cri".containerd.runtimes]
-        [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc]
-          runtime_type = "io.containerd.runc.v2"
-          [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc.options]
-            SystemdCgroup = true
-      [plugins."io.containerd.grpc.v1.cri".registry]
-        [plugins."io.containerd.grpc.v1.cri".registry.mirrors]
-          [plugins."io.containerd.grpc.v1.cri".registry.mirrors."harbor.asan"]
-            endpoint = ["https://harbor.asan"]
-            [plugins."io.containerd.grpc.v1.cri".registry.configs."harbor.asan".tls]
-              ca_file = "/etc/pki/ca-trust/source/anchors/harbor.crt"
-              cert_file = "/etc/pki/ca-trust/source/anchors/harbor.crt"
-              key_file = "/etc/pki/ca-trust/source/anchors/harbor.key"
-
-# restart containerd
-$ systemctl restart containerd
 
 # nerdctl 설정
 cat << EOF > /etc/nerdctl/nerdctl.toml
