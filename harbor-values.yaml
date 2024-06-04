@@ -11,13 +11,13 @@ externalURL: https://harbor.asan
 persistence:
   persistentVolumeClaim:
     registry:
-      storageClass: "nfs-client"
+      storageClass: "nfs-csi"
     jobservice:
       jobLog:
-        storageClass: "nfs-client"
+        storageClass: "nfs-csi"
     database:
-      storageClass: "nfs-client"
+      storageClass: "nfs-csi"
     redis:
-      storageClass: "nfs-client"
+      storageClass: "nfs-csi"
     trivy:
-      storageClass: "nfs-client"
+      storageClass: "nfs-csi"
