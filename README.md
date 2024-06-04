@@ -65,11 +65,35 @@ vi /etc/exports
 systemctl restart nfs-server
 exportfs -v
 
-$ helm upgrade -i nfs-client \
-     charts/nfs-subdir-external-provisioner-4.0.18.tgz \
-     -f nfs-values.yaml -n kube-system
+# NFS CSI driver 설치
+$ curl -skSL https://raw.githubusercontent.com/kubernetes-csi/csi-driver-nfs/v4.5.0/deploy/install-driver.sh | bash -s v4.5.0 --
 
-kubectl patch storageclass nfs-client -n kube-system -p '{"metadata": {"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}'
+# Create storage class
+$ cat <<EOF > nfs-sc.yml
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: nfs-csi
+provisioner: nfs.csi.k8s.io
+parameters:
+  server: 10.10.10.11 # NFS IP
+  share: /var/nfs/general # NFS shared Directory
+  # csi.storage.k8s.io/provisioner-secret is only needed for providing mountOptions in DeleteVolume
+  # csi.storage.k8s.io/provisioner-secret-name: "mount-options"
+  # csi.storage.k8s.io/provisioner-secret-namespace: "default"
+reclaimPolicy: Delete
+volumeBindingMode: Immediate
+mountOptions:
+  - nfsvers=4.1
+EOF
+
+$ kubectl apply -f nfs-sc.yml
+
+# Test PVC
+$ kubectl create -f https://raw.githubusercontent.com/kubernetes-csi/csi-driver-nfs/master/deploy/example/pvc-nfs-csi-dynamic.yaml
+$ kubectl get pvc
+
+$ kubectl patch storageclass nfs-csi -n kube-system -p '{"metadata": {"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}'
 ```
 
 #### 6. harbor 설치
