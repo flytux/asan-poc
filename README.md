@@ -599,6 +599,7 @@ spec:
             pathType: ImplementationSpecific
 EOF
 ```
+- login id : elastic 
 
 #### 16. logging operator 설치
 
