@@ -2,7 +2,7 @@
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: nginx-example
+  name: ng
   labels:
     app: nginx
 
@@ -11,11 +11,11 @@ kind: PersistentVolumeClaim
 apiVersion: v1
 metadata:
   name: nginx-logs
-  namespace: nginx-example
+  namespace: ng
   labels:
     app: nginx
 spec:
-  storageClassName: longhorn
+  storageClassName: nfs-csi
   accessModes:
     - ReadWriteOnce
   resources:
@@ -27,7 +27,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: nginx-deployment
-  namespace: nginx-example
+  namespace: ng
 spec:
   replicas: 1
   selector:
@@ -76,7 +76,7 @@ metadata:
   labels:
     app: nginx
   name: my-nginx
-  namespace: nginx-example
+  namespace: ng
 spec:
   ports:
   - port: 80
