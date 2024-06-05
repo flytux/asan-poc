@@ -80,7 +80,7 @@ parameters:
   # csi.storage.k8s.io/provisioner-secret is only needed for providing mountOptions in DeleteVolume
   # csi.storage.k8s.io/provisioner-secret-name: "mount-options"
   # csi.storage.k8s.io/provisioner-secret-namespace: "default"
-reclaimPolicy: vo 
+reclaimPolicy: Retain 
 volumeBindingMode: Immediate
 mountOptions:
   - nfsvers=4.1
