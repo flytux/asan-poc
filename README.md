@@ -180,6 +180,8 @@ $ helm upgrade -i gitlab charts/gitlab-7.10.2.tgz \
 --set gitlab-runner.install=false \
 --set prometheus.install=false \
 --set registry.enabled=false \
+--set postgresql.volumePermissions.enabled=true \
+--set redis.volumePermissions.enabled=true \
 -n gitlab --create-namespace
 
 # root 사용자 초기 비밀번호 확인
@@ -705,8 +707,8 @@ aws_secret_access_key = minio123
 EOF
 
 $ velero install --provider velero.io/aws \
- --bucket velero --image velero/velero:v1.11.0 \
- --plugins velero/velero-plugin-for-aws:v1.8.0,velero/velero-plugin-for-csi:v0.6.0 \
+ --bucket velero --image velero/velero:v1.13.2 \
+ --plugins velero/velero-plugin-for-aws:v1.9.2,velero/velero-plugin-for-csi:v0.7.0 \
  --backup-location-config region=minio-default,s3ForcePathStyle="true",s3Url=http://minio.minio:9000 \
  --features=EnableCSI --snapshot-location-config region=minio-default \
  --use-volume-snapshots=true --secret-file=./credential-velero
