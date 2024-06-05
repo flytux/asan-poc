@@ -7,11 +7,17 @@
 ---
 ```bash
 
-# iptables 설치 확인
+
 ```
 
 #### 1. rke2 클러스터 생성 - terraform
 ```
+
+- ssh-key 생성 및 각 노드 별 root 계정에 authorized_keys 추가
+- master01 노드에서 각 노드별 ssh 접속 확인
+- 01-variables 화일 내 노드 IP 수정
+- tf apply 적용
+
 # tf apply -auto-approve
 https://github.com/flytux/terraform-kube/rke2
 ```
