@@ -27,6 +27,7 @@ https://github.com/flytux/terraform-kube/rke2
 #### 2. cert-manager 설치
 ```
 $ kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.10.0/cert-manager.yaml
+$ kubectl apply -f cert-manager.yaml
 ```
 
 #### 3. rancher 설치
@@ -42,7 +43,6 @@ $ helm upgrade -i rancher charts/rancher-2.8.4.tgz \
 #### 4. local-path-storage 설치
 ```
 $ kubectl apply -f https://raw.githubusercontent.com/rancher/local-path-provisioner/v0.0.26/deploy/local-path-storage.yaml
-$ kubectl patch storageclass local-path -p '{"metadata": {"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}'
 
 ```
 
@@ -80,7 +80,7 @@ parameters:
   # csi.storage.k8s.io/provisioner-secret is only needed for providing mountOptions in DeleteVolume
   # csi.storage.k8s.io/provisioner-secret-name: "mount-options"
   # csi.storage.k8s.io/provisioner-secret-namespace: "default"
-reclaimPolicy: Delete
+reclaimPolicy: vo 
 volumeBindingMode: Immediate
 mountOptions:
   - nfsvers=4.1
@@ -119,6 +119,11 @@ $ cp harbor.crt harbor.key /usr/local/share/ca-certificates/ # ubuntu
 $ update-ca-certificates # ubuntu
 
 # rke2 서버에 Private Registry 설정
+
+$ cat << EOF >> /etc/hosts
+192.168.122.11 harboar.asan # Ingress IP
+EOF
+
 $  cat << EOF > /etc/rancher/rke2/registries.yaml
 mirrors:
   docker.io:
@@ -135,7 +140,7 @@ configs:
 EOF
 
 # rke2 서버 재기동
-$ systemctl restart rke2-server
+$ systemctl restart rke2-server # rke2-agent (워커노드)
 
 # nerdctl 설정
 cat << EOF > /etc/nerdctl/nerdctl.toml
@@ -190,7 +195,7 @@ $ k get -n gitlab secret gitlab-gitlab-initial-root-password -ojsonpath='{.data.
 # Login argo and import projects
 - https://github.com/flytux/kw-mvn : Project Name > KW-MVN
 - https://github.com/flytux/kw-mvn-deploy : Project Name > KW-MVN-DEPLOY
-- main branch > deploy.yml 파일의 이미지 URL을 harbor.asan로 변경
+- main branch > deploy.yml 파일의 이미지 URL을 harbor.asan/library/kw-mvn 로 변경
 
 # Delete default ingress gitlab-webservice
 $ k delete ingress gitlab-webservice-default -n gitlab
@@ -248,7 +253,7 @@ data:
             lameduck 5s
         }
      hosts {
-     192.168.122.21 gitlab.asan # Gitlab Ingress IP
+     192.168.122.21 gitlab.asan harbor.asan # Gitlab Ingress IP
      fallthrough
      }
      ready
@@ -306,7 +311,7 @@ metadata:
   name: gitlab-runner-cache-pvc
   namespace: gitlab
 spec:
-  storageClassName: nfs-client
+  storageClassName: nfs-csi
   accessModes:
   - ReadWriteOnce
   resources:
@@ -376,6 +381,24 @@ $ k exec -it $(k get pods -l app.kubernetes.io/name=argocd-server -o name) bash
 $ argocd login argocd-server.argocd --insecure --username admin --password e3m7VS-JpcpczVcq
 $ argocd repo add https://gitlab.asan/argo/kw-mvn-deploy.git --username argo --insecure-skip-server-verification
 # enter gitlab password : abcd!234
+
+# Default 프로젝트 등록
+$ kubectl -n argocd apply -f - <<"EOF"
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: default
+  namespace: argocd
+spec:
+  sourceRepos:
+    - '*'
+  destinations:
+    - namespace: '*'
+      server: '*'
+  clusterResourceWhitelist:
+    - group: '*'
+      kind: '*'
+EOF
 
 $ kubectl -n argocd apply -f - <<"EOF"
 apiVersion: argoproj.io/v1alpha1
