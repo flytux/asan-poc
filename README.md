@@ -688,13 +688,11 @@ $ kubectl -n kube-system apply -f - <<"EOF"
 kind: VolumeSnapshotClass
 apiVersion: snapshot.storage.k8s.io/v1
 metadata:
-  name: longhorn-snapshot-vsc
+  name: cs-nfs-snapshotclass
   labels:
     velero.io/csi-volumesnapshot-class: "true"
-driver: driver.longhorn.io
+driver: nfs.csi.k8s.io
 deletionPolicy: Delete
-parameters:
-  type: bak
 EOF
 
 $ cp charts/velero /usr/local/bin
@@ -708,7 +706,7 @@ EOF
 
 $ velero install --provider velero.io/aws \
  --bucket velero --image velero/velero:v1.11.0 \
- --plugins velero/velero-plugin-for-aws:v1.7.0,velero/velero-plugin-for-csi:v0.4.0 \
+ --plugins velero/velero-plugin-for-aws:v1.8.0,velero/velero-plugin-for-csi:v0.6.0 \
  --backup-location-config region=minio-default,s3ForcePathStyle="true",s3Url=http://minio.minio:9000 \
  --features=EnableCSI --snapshot-location-config region=minio-default \
  --use-volume-snapshots=true --secret-file=./credential-velero
