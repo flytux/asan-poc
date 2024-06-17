@@ -647,3 +647,7 @@ $ k exec -it $(k get pods -l app=nginx -o name) cat /var/log/nginx/access.log
 ```
 
 ---
+
+locust
+
+helm repo add deliveryhero https://charts.deliveryhero.io/
