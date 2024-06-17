@@ -37,6 +37,7 @@ $ helm repo add rancher-latest https://releases.rancher.com/server-charts/latest
 $ helm upgrade -i rancher charts/rancher-2.8.4.tgz \
 --set hostname=rancher.asan --set bootstrapPassword=admin \
 --set replicas=1 --set global.cattle.psp.enabled=false \
+--set auditLog.level=1 \
 --create-namespace -n cattle-system
 ```
 
@@ -77,9 +78,7 @@ provisioner: nfs.csi.k8s.io
 parameters:
   server: 10.10.10.11 # NFS IP
   share: /var/nfs/general # NFS shared Directory
-  # csi.storage.k8s.io/provisioner-secret is only needed for providing mountOptions in DeleteVolume
-  # csi.storage.k8s.io/provisioner-secret-name: "mount-options"
-  # csi.storage.k8s.io/provisioner-secret-namespace: "default"
+  mountPermissions: "0777"
 reclaimPolicy: vo 
 volumeBindingMode: Immediate
 mountOptions:
@@ -121,7 +120,7 @@ $ update-ca-certificates # ubuntu
 # rke2 서버에 Private Registry 설정
 
 $ cat << EOF >> /etc/hosts
-192.168.122.11 harboar.asan # Ingress IP
+192.168.122.11 harbor.asan # Ingress IP
 EOF
 
 $  cat << EOF > /etc/rancher/rke2/registries.yaml
@@ -180,8 +179,6 @@ $ helm upgrade -i gitlab charts/gitlab-7.10.2.tgz \
 --set gitlab-runner.install=false \
 --set prometheus.install=false \
 --set registry.enabled=false \
---set postgresql.volumePermissions.enabled=true \
---set redis.volumePermissions.enabled=true \
 -n gitlab --create-namespace
 
 # root 사용자 초기 비밀번호 확인
@@ -237,7 +234,7 @@ EOF
 
 # add to /etc/hosts 
 cat << EOF | sudo tee -a /etc/hosts
-192.168.122.21 gitlab.asan
+192.168.122.11 gitlab.asan
 EOF
 
 # Gitlab Runner 용 사설인증서 생성
@@ -255,7 +252,7 @@ data:
             lameduck 5s
         }
      hosts {
-     192.168.122.21 gitlab.asan harbor.asan # Gitlab Ingress IP
+     192.168.122.11 gitlab.asan harbor.asan # Gitlab Ingress IP
      fallthrough
      }
      ready
@@ -427,16 +424,19 @@ EOF
 #### 11. SAMPLE 빌드 파이프라인 구성
 
 ```
+main 브랜치
+
 variables:
   MAVEN_OPTS: "-Dmaven.repo.local=/cache/maven.repository"
-  IMAGE_URL: "harbor.asan/library/kw-mvn"
+  IMAGE_URL: "harbor.asan/library"
+  IMAGE: "kw-mvn"
   DEPLOY_REPO_URL: "https://gitlab.asan/argo/kw-mvn-deploy.git"
   DEPLOY_REPO_CREDENTIALS: "https://argo:abcd!234@gitlab.asan/argo/kw-mvn-deploy.git"
   REGISTRY_USER_ID: "admin"
   REGISTRY_USER_PASSWORD: "Harbor12345"
   ARGO_URL: "argocd-server.argocd"
   ARGO_USER_ID: "admin"
-  ARGO_USER_PASSWORD: "VO1FnBnErFQSGgSL"
+  ARGO_USER_PASSWORD: "password!@#$"
   ARGO_APP_NAME: "kw-mvn"
 
 stages:
@@ -444,7 +444,7 @@ stages:
   - update-yaml
   - sync-argo-app
 
-maven-jib-build: 
+maven-jib-build:
   image: gcr.io/cloud-builders/mvn@sha256:57523fc43394d6d9d2414ee8d1c85ed7a13460cbb268c3cd16d28cfb3859e641
   stage: maven-jib-build
   script:
@@ -452,13 +452,13 @@ maven-jib-build:
     - "mvn -B \
         -DsendCredentialsOverHttp=true \
         -Djib.allowInsecureRegistries=true \
-        -Djib.to.image=$IMAGE_URL:$COMMIT_TIME-$CI_JOB_ID \
+        -Djib.to.image=$IMAGE_URL/$IMAGE:$COMMIT_TIME-$CI_JOB_ID \
         -Djib.to.auth.username=$REGISTRY_USER_ID \
         -Djib.to.auth.password=$REGISTRY_USER_PASSWORD     \
         compile \
         com.google.cloud.tools:jib-maven-plugin:build"
-    - echo "IMAGE_FULL_NAME=$IMAGE_URL:$COMMIT_TIME-$CI_JOB_ID" >> build.env
-    - echo "NEW_TAG=$IMAGE_URL:$COMMIT_TIME-$CI_JOB_ID" >> build.env
+    - echo "IMAGE_FULL_NAME=$IMAGE_URL/$IMAGE:$COMMIT_TIME-$CI_JOB_ID" >> build.env
+    - echo "NEW_TAG=$COMMIT_TIME-$CI_JOB_ID" >> build.env
     - cat build.env
   artifacts:
     reports:
@@ -471,10 +471,10 @@ update-yaml:
     - mkdir deploy && cd deploy
     - git init
 
-    - echo $DEPLOY_REPO_CREDENTIALS > ~/.git-credentials 
+    - echo $DEPLOY_REPO_CREDENTIALS > ~/.git-credentials
     - cat ~/.git-credentials
     - git config credential.helper store
-    
+
     - git remote add origin $DEPLOY_REPO_URL
     - git remote -v
 
@@ -483,9 +483,9 @@ update-yaml:
     - ls -al
 
     - echo "updating image to $IMAGE_FULL_NAME"
-    - sed -i "s|$IMAGE_URL:.*$|$IMAGE_FULL_NAME|" deploy.yml
+    - sed -i "s|$IMAGE:.*$|$IMAGE:$NEW_TAG|" deploy.yml
     - cat deploy.yml | grep image
-    
+
     - git config --global user.email "argo@dev"
     - git config --global user.name "gitlab-runner"
     - git add .
@@ -500,33 +500,97 @@ sync-argocd:
 
     - argocd app sync $ARGO_APP_NAME --insecure
     - argocd app wait $ARGO_APP_NAME --sync --health --operation --insecure
+
+```
+---
+
+```
+gradle 브랜치
+
+variables:
+  MAVEN_OPTS: "-Dmaven.repo.local=/cache/maven.repository"
+  IMAGE_URL: "harbor.asan/library"
+  IMAGE: "kw-mvn"
+  DEPLOY_REPO_URL: "https://gitlab.asan/argo/kw-mvn-deploy.git"
+  DEPLOY_REPO_CREDENTIALS: "https://argo:abcd!234@gitlab.asan/argo/kw-mvn-deploy.git"
+  REGISTRY_USER_ID: "admin"
+  REGISTRY_USER_PASSWORD: "Harbor12345"
+  ARGO_URL: "argocd-server.argocd"
+  ARGO_USER_ID: "admin"
+  ARGO_USER_PASSWORD: "password!@#$"
+  ARGO_APP_NAME: "kw-mvn"
+
+stages:
+  - gradle-jib-build
+  - update-yaml
+  - sync-argo-app
+
+gradle-jib-build:
+  image: gradle:7.6-jdk11
+  stage: gradle-jib-build
+  script:
+    - COMMIT_TIME="$(date -d "$CI_COMMIT_TIMESTAMP" +"%Y%m%d-%H%M%S")"
+
+    - "gradle jib \
+        -Djib.allowInsecureRegistries=true \
+        -Djib.to.image=$IMAGE_URL/$IMAGE:$COMMIT_TIME-$CI_JOB_ID-GRADLE \
+        -Djib.to.auth.username=$REGISTRY_USER_ID \
+        -Djib.to.auth.password=$REGISTRY_USER_PASSWORD"
+    
+    - echo "IMAGE_FULL_NAME=$IMAGE_URL/$IMAGE:$COMMIT_TIME-$CI_JOB_ID-GRADLE" >> build.env
+    - echo "NEW_TAG=$COMMIT_TIME-$CI_JOB_ID-GRADLE" >> build.env
+    - cat build.env
+
+  artifacts:
+    reports:
+      dotenv: build.env
+
+update-yaml:
+  image: alpine/git:v2.26.2
+  stage: update-yaml
+  script:
+    - mkdir deploy && cd deploy
+    - git init
+
+    - echo $DEPLOY_REPO_CREDENTIALS > ~/.git-credentials
+    - cat ~/.git-credentials
+    - git config credential.helper store
+
+    - git remote add origin $DEPLOY_REPO_URL
+    - git remote -v
+
+    - git -c http.sslVerify=false fetch --depth 1 origin main
+    - git -c http.sslVerify=false checkout main
+    - ls -al
+
+    - echo "updating image to $IMAGE_FULL_NAME"
+    - sed -i "s|$IMAGE:.*$|$IMAGE:$NEW_TAG|" deploy.yml
+    - cat deploy.yml | grep image
+
+    - git config --global user.email "argo@dev"
+    - git config --global user.name "gitlab-runner"
+    - git add .
+    - git commit --allow-empty -m "[gitlab-runner] updating image to $IMAGE_FULL_NAME"
+    - git -c http.sslVerify=false push origin main
+
+sync-argocd:
+  image: quay.io/argoproj/argocd:v2.4.8
+  stage: sync-argo-app
+  script:
+    - argocd login $ARGO_URL --username $ARGO_USER_ID --password $ARGO_USER_PASSWORD --insecure
+
+    - argocd app sync $ARGO_APP_NAME --insecure
+    - argocd app wait $ARGO_APP_NAME --sync --health --operation --insecure
+
 ```
 
-#### 12. longhorn 설치 (Skip)
-```
-$ yum --setopt=tsflags=noscripts install iscsi-initiator-utils
-$ echo "InitiatorName=$(/sbin/iscsi-iname)" > /etc/iscsi/initiatorname.iscsi
-$ systemctl enable iscsid
-$ systemctl start iscsid
-
-# apt -y install open-iscsi # Ubuntu
-
-$ k create -f minio-secret.yaml
-
-$ helm install longhorn \
-    charts/longhorn-1.6.1.tgz \
-    --namespace longhorn-system \
-    --create-namespace \
-    --values longhorn-values.yaml
-```
-
-#### 13. rancher 모니터링 설치
+#### 12. rancher 모니터링 설치
 
 ```
 # Rancher 로그인 > Cluster Tools > Monitoring 설치
 ```
 
-#### 14. loki stack 설치
+#### 13. loki stack 설치
 
 ```
 $ helm upgrade -i loki loki-stack-2.10.2.tgz -n loki --create-namespace
@@ -536,149 +600,7 @@ $ helm upgrade -i loki loki-stack-2.10.2.tgz -n loki --create-namespace
 # Explorer Log (https://rancher.asan/api/v1/namespaces/cattle-monitoring-system/services/http:rancher-monitoring-grafana:80/proxy/explore)
 ```
 
-#### 15. elasticsearch 설치
-
-```
-# Elasticsearch operator 설치 (crd, operator)
-$ kubectl create -f https://download.elastic.co/downloads/eck/2.11.1/crds.yaml
-$ kubectl apply -f https://download.elastic.co/downloads/eck/2.11.1/operator.yaml
-
-# elasticsearch 설치
-$ cat <<EOF | kubectl apply -f -
-apiVersion: elasticsearch.k8s.elastic.co/v1
-kind: Elasticsearch
-metadata:
-  name: quickstart
-spec:
-  version: 8.13.2
-  nodeSets:
-  - name: default
-    count: 1
-    config:
-      node.store.allow_mmap: false
-EOF
-
-# check elastic search
-$ kubectl get elasticsearch
-
-# install kibana
-
-$ cat <<EOF | kubectl apply -f -
-apiVersion: kibana.k8s.elastic.co/v1
-kind: Kibana
-metadata:
-  name: quickstart
-spec:
-  version: 8.13.2
-  count: 1
-  elasticsearchRef:
-    name: quickstart
-EOF
-
-$ kubectl get secret quickstart-es-elastic-user -o=jsonpath='{.data.elastic}' | base64 --decode; echo
-
-$ cat <<EOF | kubectl apply -f -
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: kibana
-  annotations:
-    nginx.ingress.kubernetes.io/backend-protocol: HTTPS
-    nginx.ingress.kubernetes.io/proxy-ssl-verify: 'false'
-  namespace: elastic-system
-spec:
-  ingressClassName: nginx
-  rules:
-    - host: kibana.asan
-      http:
-        paths:
-          - backend:
-              service:
-                name: quickstart-kb-http
-                port:
-                  number: 5601
-            path: /
-            pathType: ImplementationSpecific
-EOF
-```
-- login id : elastic 
-
-#### 16. logging operator 설치
-
-```
-# logging operatopr 설치
-$ helm upgrade -i logging-operator -n logging charts/logging-operator-4.6.0.tgz --create-namespace
-
-# logging 생성 - 로그 관리 단위
-$ kubectl -n logging apply -f - <<"EOF"
-apiVersion: logging.banzaicloud.io/v1beta1
-kind: Logging
-metadata:
-  name: default-logging-simple
-spec:
-  fluentd: {}
-  fluentbit: {}
-  controlNamespace: logging
-EOF
-
-# elastic-user secret 생성
-$ k get secret -n elastic-system quickstart-es-elastic-user -o yaml |  sed  '/^  namespace:.*/d' | k apply -f -
-
-# create ouput
-$ kubectl -n logging apply -f - <<"EOF"
-apiVersion: logging.banzaicloud.io/v1beta1
-kind: Output
-metadata:
-  name: es-output
-spec:
-  elasticsearch:
-    host: quickstart-es-http.elastic-system
-    port: 9200
-    scheme: https
-    ssl_verify: false
-    ssl_version: TLSv1_2
-    user: elastic
-    password:
-      valueFrom:
-        secretKeyRef:
-          name: quickstart-es-elastic-user
-          key: elastic
-    buffer:
-      timekey: 1m
-      timekey_wait: 30s
-      timekey_use_utc: true
-EOF
-
-# create flow
-$ kubectl -n logging apply -f - <<"EOF"
-apiVersion: logging.banzaicloud.io/v1beta1
-kind: Flow
-metadata:
-  name: es-flow
-spec:
-  filters:
-    - tag_normaliser: {}
-    - parser:
-        remove_key_name_field: true
-        reserve_data: true
-        parse:
-          type: nginx
-  match:
-     - select:
-         labels:
-           app.kubernetes.io/name: log-generator
-  localOutputRefs:
-    - es-output
-EOF
-
-# install log-generator
-$ helm upgrade -i log-generator -n logging charts/log-generator-0.7.0.tgz
-
-# login elasticsearch (https://kibana.asan/)
-# Discover > Create data view > fluentd index 선택택
-```
-
-#### 17. velero 설치
+#### 14. velero 설치
 
 ```
 # external snapshotter 설치
@@ -724,23 +646,4 @@ $ kn nginx-example
 $ k exec -it $(k get pods -l app=nginx -o name) cat /var/log/nginx/access.log
 ```
 
-#### 18. mariadb 설치
-```
-$ helm upgrade -i mariadb charts/mariadb-18.0.2.tgz -n mariadb --create-namespace
-```
-
-#### 19. postgresql 설치
-```
-$ helm upgrade -i postgresql charts/postgresql-15.2.5.tgz -n postgresql --create-namespace
-```
-
-#### 20. kafka 설치
-```
-$ helm upgrade -i kafka -n stream charts/kafka-28.0.4.tgz --create-namespace
-```
-
-#### 21. NATS 설치
-```
-
-```
 ---

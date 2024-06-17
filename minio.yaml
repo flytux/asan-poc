@@ -51,7 +51,7 @@ metadata:
   name: pvc-minio
   namespace: minio
 spec:
-  storageClassName: nfs-client
+  storageClassName: nfs-csi
   accessModes:
     - ReadWriteOnce
   resources:
