@@ -79,7 +79,7 @@ parameters:
   server: 10.10.10.11 # NFS IP
   share: /var/nfs/general # NFS shared Directory
   mountPermissions: "0777"
-reclaimPolicy: vo 
+reclaimPolicy: Retain 
 volumeBindingMode: Immediate
 mountOptions:
   - nfsvers=4.1
