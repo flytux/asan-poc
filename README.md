@@ -260,14 +260,14 @@ spec:
         pathType: Prefix
   tls:
   - hosts:
-    - gitlab.asan
+    - gitlab.amc.seoul.kr
     secretName: gitlab-ingress-tls
 EOF
 
 
 # add to /etc/hosts 
 cat << EOF | sudo tee -a /etc/hosts
-192.168.122.11 gitlab.asan
+192.168.122.11 gitlab.amc.seoul.kr
 EOF
 
 # Gitlab Runner 용 사설인증서 생성
