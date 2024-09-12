@@ -33,9 +33,10 @@ $ kubectl apply -f cert-manager.yaml
 #### 3. rancher 설치
 ```
 $ helm repo add rancher-latest https://releases.rancher.com/server-charts/latest 
+$ helm repo update
 
-$ helm upgrade -i rancher charts/rancher-2.8.4.tgz \
---set hostname=rancher.asan --set bootstrapPassword=admin \
+$ helm upgrade -i rancher rancher-latest/rancher \
+--set hostname=rancher.amc.seoul.kr --set bootstrapPassword=admin \
 --set replicas=1 --set global.cattle.psp.enabled=false \
 --set auditLog.level=1 \
 --create-namespace -n cattle-system
@@ -98,8 +99,8 @@ $ kubectl patch storageclass nfs-csi -n kube-system -p '{"metadata": {"annotatio
 ```
 # 사설 인증서 생성
 $ openssl req -x509 -newkey rsa:4096 -sha256 -days 3650 -nodes \
-  -keyout harbor.key -out harbor.crt -subj '/CN=harbor.asan' \
-  -addext 'subjectAltName=DNS:harbor.asan'
+  -keyout harbor.key -out harbor.crt -subj '/CN=harbor.amc.seoul.kr' \
+  -addext 'subjectAltName=DNS:harbor.amc.seoul.kr'
 
 $ kubectl create ns harbor
 $ kubectl create secret tls harbor-ingress-tls --key harbor.key --cert harbor.crt -n harbor
@@ -107,15 +108,23 @@ $ kubectl create secret tls harbor-ingress-tls --key harbor.key --cert harbor.cr
 # ingress에 해당 secret를 tls로 등록해주고, domain 이름을 지정 harbor.asan
 
 # harbor 설치
-$ helm upgrade -i harbor charts/harbor-1.14.2.tgz\
-     -n harbor -f harbor-values.yaml
+$ helm repo add harbor https://helm.goharbor.io
+
+$ helm upgrade -i harbor harbor/harbor \
+     -n harbor -f harbor-values.yaml # 스토리지 클래스 확인인
 
 # 사설인증서 등록 (워커노드에 전부 적용)
-$ scp -i .ssh/id_rsa harbor.crt root@192.168.122.11:/root
-$ scp -i .ssh/id_rsa harbor.key root@192.168.122.11:/root
+$ scp -i .ssh/id_rsa harbor.crt root@노드 IP:/root
+$ scp -i .ssh/id_rsa harbor.key root@노드 IP\:/root
 
-$ cp harbor.crt harbor.key /usr/local/share/ca-certificates/ # ubuntu 
+# RHEL / Rocky
+$ cp harbor.* /etc/pki/ca-trust/source/anchors/
+$ update-ca-trust
+
+# Ubuntu
+$ cp harbor.crt harbor.key /usr/local/share/ca-certificates/ 
 $ update-ca-certificates # ubuntu
+
 
 # rke2 서버에 Private Registry 설정
 
@@ -141,9 +150,33 @@ EOF
 # rke2 서버 재기동
 $ systemctl restart rke2-server # rke2-agent (워커노드)
 
+# Containerd 설정
+$ vi /etc/containerd/containerd.toml
+ 
+[plugins]
+  [plugins."io.containerd.grpc.v1.cri"]
+   [plugins."io.containerd.grpc.v1.cri".containerd]
+      [plugins."io.containerd.grpc.v1.cri".containerd.runtimes]
+        [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc]
+          runtime_type = "io.containerd.runc.v2"
+          [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc.options]
+            SystemdCgroup = true
+      [plugins."io.containerd.grpc.v1.cri".registry]
+        [plugins."io.containerd.grpc.v1.cri".registry.mirrors]
+          [plugins."io.containerd.grpc.v1.cri".registry.mirrors."harbor.amc.seoul.kr"]
+            endpoint = ["https://harbor.amc.seoul.kr"]
+            [plugins."io.containerd.grpc.v1.cri".registry.configs."harbor.amc.seoul.kr".tls]
+              ca_file = "/etc/pki/ca-trust/source/anchors/harbor.crt"
+              cert_file = "/etc/pki/ca-trust/source/anchors/harbor.crt"
+              key_file = "/etc/pki/ca-trust/source/anchors/harbor.key" 
+            [plugins."io.containerd.grpc.v1.cri".registry.configs."harbor.amc.seoul.kr".auth]
+              username = "admin"
+              password = "Harbor12345"
+
+$ systemctl restart containerd
+
 # nerdctl 설정
 cat << EOF > /etc/nerdctl/nerdctl.toml
-
 debug          = false
 debug_full     = false
 address        = "unix:///run/k3s/containerd/containerd.sock"
@@ -201,8 +234,8 @@ $ k delete ingress gitlab-webservice-default -n gitlab
 
 # Gitlab Runner 등록을 위한 사설인증서 생성하여 ingress에 연결
 $ openssl req -x509 -newkey rsa:4096 -sha256 -days 3650 -nodes \
-  -keyout gitlab.key -out gitlab.crt -subj '/CN=gitlab.asan' \
-  -addext 'subjectAltName=DNS:gitlab.asan'	
+  -keyout gitlab.key -out gitlab.crt -subj '/CN=gitlab.amc.seoul.kr' \
+  -addext 'subjectAltName=DNS:gitlab.amc.seoul.kr'	
 $ kubectl create secret tls gitlab-ingress-tls --key gitlab.key --cert gitlab.crt -n gitlab
 
 # Create Ingress 
@@ -215,7 +248,7 @@ metadata:
 spec:
   ingressClassName: nginx
   rules:
-  - host: gitlab.asan 
+  - host: gitlab.amc.seoul.kr
     http:
       paths:
       - backend:
@@ -238,8 +271,8 @@ cat << EOF | sudo tee -a /etc/hosts
 EOF
 
 # Gitlab Runner 용 사설인증서 생성
-$ openssl s_client -showcerts -connect gitlab.asan:443 -servername gitlab.asan < /dev/null 2>/dev/null | openssl x509 -outform PEM > gitlab.asan.crt
-$ k create secret generic gitlab-runner-tls --from-file=gitlab.asan.crt  -n gitlab
+$ openssl s_client -showcerts -connect gitlab.amc.seoul.kr:443 -servername gitlab.amc.seoul.kr < /dev/null 2>/dev/null | openssl x509 -outform PEM > gitlab.amc.seoul.kr.crt
+$ k create secret generic gitlab-runner-tls --from-file=gitlab.amc.seoul.kr.crt  -n gitlab
 
 # add in cluster dns gitlab.asan to coredns
 $ k edit cm -n kube-system rke2-coredns-rke2-coredns
@@ -252,7 +285,7 @@ data:
             lameduck 5s
         }
      hosts {
-     192.168.122.11 gitlab.asan harbor.asan # Gitlab Ingress IP
+     192.168.122.11 gitlab.amc.seoul.kr harbor.amc.seoul.kr # Gitlab Ingress IP
      fallthrough
      }
      ready
@@ -270,20 +303,20 @@ data:
     }
     
 $ k run -it --rm curl --image curlimages/curl -- sh
-/ $ ping gitlab.asan
+/ $ ping gitlab.amc.seoul.kr
 
 ```
 
 #### 9. gitlab runner 설치
 ```
 # Setup runner and get runner token from KW-MVN project
-# https://gitlab.asan/argo/kw-mvn/-/runners/new
+# https://gitlab.amc.seoul.kr/argo/kw-mvn/-/runners/new
 
 # Configuration > Run untagged jobs 체크 > Submit
 # Copy token glrt-wb_BLETYwEdVpP6qCyQX
 
 $ cat << EOF > gitlab-runner-values.yaml
-gitlabUrl: https://gitlab.asan
+gitlabUrl: https://gitlab.amc.seoul.kr
 
 runnerToken: glrt-wb_BLETYwEdVpP6qCyQX # 저장한 토큰값 사용
 rbac:
@@ -350,7 +383,7 @@ metadata:
     nginx.ingress.kubernetes.io/ssl-passthrough: "true"
 spec:
   rules:
-  - host: argocd.asan
+  - host: argocd.amc.seoul.kr
     http:
       paths:
       - path: /
@@ -366,10 +399,10 @@ EOF
 $ kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d
 
 # add gitlab ca-cert (self-signed)
-- https://argocd.asan/settings/certs?addTLSCert=true
-- add name gitlab.asan & paste gitlab.asan.crt pem file
+- https://argocd.amc.seoul.kr/settings/certs?addTLSCert=true
+- add name gitlab.amc.seoul.kr & paste gitlab.amc.seoul.kr.crt pem file
 
-$ cat gitlab.asan.crt
+$ cat gitlab.amc.seoul.kr.crt
 
 # add argocd app 
 
@@ -411,7 +444,7 @@ spec:
     server: 'https://kubernetes.default.svc'
   source:
     path: .
-    repoURL: 'https://gitlab.asan/argo/kw-mvn-deploy.git'
+    repoURL: 'https://gitlab.amc.seoul.kr/argo/kw-mvn-deploy.git'
     targetRevision: main
   sources: []
   project: default
@@ -428,10 +461,10 @@ main 브랜치
 
 variables:
   MAVEN_OPTS: "-Dmaven.repo.local=/cache/maven.repository"
-  IMAGE_URL: "harbor.asan/library"
+  IMAGE_URL: "harbor.amc.seoul.kr/library"
   IMAGE: "kw-mvn"
-  DEPLOY_REPO_URL: "https://gitlab.asan/argo/kw-mvn-deploy.git"
-  DEPLOY_REPO_CREDENTIALS: "https://argo:abcd!234@gitlab.asan/argo/kw-mvn-deploy.git"
+  DEPLOY_REPO_URL: "https://gitlab.amc.seoul.kr/argo/kw-mvn-deploy.git"
+  DEPLOY_REPO_CREDENTIALS: "https://argo:abcd!234@gitlab.amc.seoul.kr/argo/kw-mvn-deploy.git"
   REGISTRY_USER_ID: "admin"
   REGISTRY_USER_PASSWORD: "Harbor12345"
   ARGO_URL: "argocd-server.argocd"
