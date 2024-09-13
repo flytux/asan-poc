@@ -407,11 +407,11 @@ $ cat gitlab.amc.seoul.kr.crt
 # add argocd app 
 
 $ kn argocd
-$ k exec -it $(k get pods -l app.kubernetes.io/name=argocd-server -o name) bash
+$ k exec -it -n argocd $(k get pods -l app.kubernetes.io/name=argocd-server -o name -n argocd) bash 
 
 # check argocd user id and password
 $ argocd login argocd-server.argocd --insecure --username admin --password e3m7VS-JpcpczVcq
-$ argocd repo add https://gitlab.asan/argo/kw-mvn-deploy.git --username argo --insecure-skip-server-verification
+$ argocd repo add https://gitlab.amc.seoul.kr/argo/kw-mvn-deploy.git --username argo --insecure-skip-server-verification
 # enter gitlab password : abcd!234
 
 # Default 프로젝트 등록
@@ -469,7 +469,7 @@ variables:
   REGISTRY_USER_PASSWORD: "Harbor12345"
   ARGO_URL: "argocd-server.argocd"
   ARGO_USER_ID: "admin"
-  ARGO_USER_PASSWORD: "password!@#$"
+  ARGO_USER_PASSWORD: "e3m7VS-JpcpczVcq"
   ARGO_APP_NAME: "kw-mvn"
 
 stages:
@@ -542,15 +542,15 @@ gradle 브랜치
 
 variables:
   MAVEN_OPTS: "-Dmaven.repo.local=/cache/maven.repository"
-  IMAGE_URL: "harbor.asan/library"
+  IMAGE_URL: "harbor.amc.seoul.kr/library"
   IMAGE: "kw-mvn"
-  DEPLOY_REPO_URL: "https://gitlab.asan/argo/kw-mvn-deploy.git"
-  DEPLOY_REPO_CREDENTIALS: "https://argo:abcd!234@gitlab.asan/argo/kw-mvn-deploy.git"
+  DEPLOY_REPO_URL: "https://gitlab.amc.seoul.kr/argo/kw-mvn-deploy.git"
+  DEPLOY_REPO_CREDENTIALS: "https://argo:abcd!234@gitlab.amc.seoul.kr/argo/kw-mvn-deploy.git"
   REGISTRY_USER_ID: "admin"
   REGISTRY_USER_PASSWORD: "Harbor12345"
   ARGO_URL: "argocd-server.argocd"
   ARGO_USER_ID: "admin"
-  ARGO_USER_PASSWORD: "password!@#$"
+  ARGO_USER_PASSWORD: "e3m7VS-JpcpczVcq"
   ARGO_APP_NAME: "kw-mvn"
 
 stages:
