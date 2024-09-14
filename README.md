@@ -1,84 +1,64 @@
-## 서울아산병원 PoC 환경 구성
-
-- MGMT 클러스터 (1 node) 와 DEVOPS 클러스터 (3 node) 를 구성한다.
-- MGMT 클러스터는 Rancher, Harbor, Minio 등 클러스터 환경 관리 및 공통 정보 저장소를 구성하고
-- DEVSOP 클러스터는 GitLab, ArgoCD 등 DEVOPS 툴체인과 애플리케이션 개발 및 배포 환경, DBMS 및 인프라 서비스, 모니터링, 로깅 환경을 구성한다.
-  
 ---
+- Nutanix Infra에 오픈소스 CI/CD 서비스 설치
+- Traefik Ingress Controller, Velero 등 Nutanix 서비스 이용
+---
+### Cert-Manager 설치
+
 ```bash
 
+kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.10.0/cert-manager.yaml
 
 ```
 
-#### 1. rke2 클러스터 생성 - terraform
-```
+### Rancher 설치
 
-- ssh-key 생성 및 각 노드 별 root 계정에 authorized_keys 추가
-- master01 노드에서 각 노드별 ssh 접속 확인
-- 01-variables 화일 내 노드 IP 수정
-- tf apply 적용
+```bash
 
-# tf apply -auto-approve
-https://github.com/flytux/terraform-kube/rke2
-```
-
-## MGMT 클러스터 구성
-
-#### 2. cert-manager 설치
-```
-$ kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.10.0/cert-manager.yaml
-$ kubectl apply -f cert-manager.yaml
-```
-
-#### 3. rancher 설치
-```
-$ helm repo add rancher-latest https://releases.rancher.com/server-charts/latest 
-$ helm repo update
-
-$ helm upgrade -i rancher rancher-latest/rancher \
+helm repo add rancher-latest https://releases.rancher.com/server-charts/latest 
+ 
+helm repo update
+ 
+helm upgrade -i rancher rancher-2.9.1.tgz \
 --set hostname=rancher.amc.seoul.kr --set bootstrapPassword=admin \
 --set replicas=1 --set global.cattle.psp.enabled=false \
 --set auditLog.level=1 \
 --create-namespace -n cattle-system
-```
-
-#### 4. local-path-storage 설치
-```
-$ kubectl apply -f https://raw.githubusercontent.com/rancher/local-path-provisioner/v0.0.26/deploy/local-path-storage.yaml
 
 ```
 
-#### 5. nfs 클라이언트 설치
-```
-nfs 서버 설치
+### NFS-Server 설치
 
-dnf install nfs-utils # RHEL
-apt install nfs-server -y # Ubuntu
+```bash
 
-systemctl enable nfs-server
+dnf install nfs-utils
+
 mkdir -p /mnt/pv
 chmod 707 /mnt/pv
 chown -R 65534:65534 /mnt/pv 
 systemctl start nfs-server
 vi /etc/exports
-/mnt/pv 192.168.122.21(rw,sync,no_root_squash)
-/mnt/pv 192.168.122.22(rw,sync,no_root_squash)
+/mnt/pv 192.168.122.11(rw,sync,no_root_squash)
 systemctl restart nfs-server
 exportfs -v
 
-# NFS CSI driver 설치
-$ curl -skSL https://raw.githubusercontent.com/kubernetes-csi/csi-driver-nfs/v4.5.0/deploy/install-driver.sh | bash -s v4.5.0 --
+```
 
-# Create storage class
-$ cat <<EOF > nfs-sc.yml
+### Storage Class 설치
+
+```bash
+
+curl -skSL https://raw.githubusercontent.com/kubernetes-csi/csi-driver-nfs/v4.5.0/deploy/install-driver.sh | bash -s v4.5.0 --
+cat install-driver.sh | bash -s v4.5.0 --
+
+cat <<EOF > nfs-sc.yml
 apiVersion: storage.k8s.io/v1
 kind: StorageClass
 metadata:
   name: nfs-csi
 provisioner: nfs.csi.k8s.io
 parameters:
-  server: 10.10.10.11 # NFS IP
-  share: /var/nfs/general # NFS shared Directory
+  server: 192.168.122.11
+  share: /mnt/pv
   mountPermissions: "0777"
 reclaimPolicy: Retain 
 volumeBindingMode: Immediate
@@ -86,73 +66,75 @@ mountOptions:
   - nfsvers=4.1
 EOF
 
-$ kubectl apply -f nfs-sc.yml
+kubectl create -f https://raw.githubusercontent.com/kubernetes-csi/csi-driver-nfs/master/deploy/example/pvc-nfs-csi-dynamic.yaml
+kubectl patch storageclass nfs-csi -n kube-system -p '{"metadata": {"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}'
 
-# Test PVC
-$ kubectl create -f https://raw.githubusercontent.com/kubernetes-csi/csi-driver-nfs/master/deploy/example/pvc-nfs-csi-dynamic.yaml
-$ kubectl get pvc
-
-$ kubectl patch storageclass nfs-csi -n kube-system -p '{"metadata": {"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}'
 ```
 
-#### 6. harbor 설치
-```
-# 사설 인증서 생성
-$ openssl req -x509 -newkey rsa:4096 -sha256 -days 3650 -nodes \
+### Harbor 설치
+
+```bash
+ 
+openssl req -x509 -newkey rsa:4096 -sha256 -days 3650 -nodes \
   -keyout harbor.key -out harbor.crt -subj '/CN=harbor.amc.seoul.kr' \
   -addext 'subjectAltName=DNS:harbor.amc.seoul.kr'
 
-$ kubectl create ns harbor
-$ kubectl create secret tls harbor-ingress-tls --key harbor.key --cert harbor.crt -n harbor
+kubectl create ns harbor
+kubectl create secret tls harbor-ingress-tls --key harbor.key --cert harbor.crt -n harbor
 
-# ingress에 해당 secret를 tls로 등록해주고, domain 이름을 지정 harbor.asan
+helm repo add harbor https://helm.goharbor.io
 
-# harbor 설치
-$ helm repo add harbor https://helm.goharbor.io
-
-$ helm upgrade -i harbor harbor/harbor \
-     -n harbor -f harbor-values.yaml # 스토리지 클래스 확인인
-
-# 사설인증서 등록 (워커노드에 전부 적용)
-$ scp -i .ssh/id_rsa harbor.crt root@노드 IP:/root
-$ scp -i .ssh/id_rsa harbor.key root@노드 IP\:/root
-
-# RHEL / Rocky
-$ cp harbor.* /etc/pki/ca-trust/source/anchors/
-$ update-ca-trust
-
-# Ubuntu
-$ cp harbor.crt harbor.key /usr/local/share/ca-certificates/ 
-$ update-ca-certificates # ubuntu
-
-
-# rke2 서버에 Private Registry 설정
-
-$ cat << EOF >> /etc/hosts
-192.168.122.11 harbor.asan # Ingress IP
+cat << EOF > harbor-values.yaml
+expose:
+  tls:
+    certSource: secret
+    secret:
+      secretName: "harbor-ingress-tls"
+  ingress:
+    hosts:
+      core: harbor.amc.seoul.kr
+externalURL: https://harbor.amc.seoul.kr
 EOF
 
-$  cat << EOF > /etc/rancher/rke2/registries.yaml
+helm upgrade -i harbor harbor/harbor -n harbor -f harbor-values.yaml 
+
+# Ingress Annotations for tls
+
+  traefik.ingress.kubernetes.io/router.entrypoints: websecure
+  traefik.ingress.kubernetes.io/router.tls: "true"
+
+
+scp harbor.key node-01:/etc/pki/ca-trust/source/anchors/
+scp harbor.crt node-01:/etc/pki/ca-trust/source/anchors/
+
+ssh node-01 update-ca-trust
+
+ssh node-01
+
+cat << EOF >> /etc/hosts
+192.168.122.11 harbor.amc.seoul.kr
+EOF
+
+# RKE2 / K3S registry
+
+cat << EOF > /etc/rancher/rke2/registries.yaml
 mirrors:
   docker.io:
     endpoint:
-      - "https://harbor.asan"
+      - "https://harbor.amc.seoul.kr"
 configs:
-  "harbor.asan":
+  "harbor.amc.seou.kr":
     auth:
       username: admin # this is the registry username
       password: Harbor12345 # this is the registry password
     tls:
-      cert_file: /usr/local/share/ca-certificates/harbor.crt
-      key_file: /usr/local/share/ca-certificates/harbor.key
+      cert_file: /etc/pki/ca-trust/source/anchors/harbor.crt
+      key_file: /etc/pki/ca-trust/source/anchors/harbor.key
 EOF
 
-# rke2 서버 재기동
-$ systemctl restart rke2-server # rke2-agent (워커노드)
+# KubeADM RKE2 / K3S registry
 
-# Containerd 설정
-$ vi /etc/containerd/containerd.toml
- 
+cat << EOF > /etc/containerd/containerd.toml
 [plugins]
   [plugins."io.containerd.grpc.v1.cri"]
    [plugins."io.containerd.grpc.v1.cri".containerd]
@@ -172,41 +154,22 @@ $ vi /etc/containerd/containerd.toml
             [plugins."io.containerd.grpc.v1.cri".registry.configs."harbor.amc.seoul.kr".auth]
               username = "admin"
               password = "Harbor12345"
-
-$ systemctl restart containerd
-
-# nerdctl 설정
-cat << EOF > /etc/nerdctl/nerdctl.toml
-debug          = false
-debug_full     = false
-address        = "unix:///run/k3s/containerd/containerd.sock"
-namespace      = "k8s.io"
-snapshotter    = "stargz"
-cgroup_manager = "cgroupfs"
-hosts_dir      = ["/etc/containerd/certs.d", "/etc/docker/certs.d"]
-experimental   = true
 EOF
 
-# harbor 접속
-$ nerdctl login harbor.asan # admin/Harbor12345
-
 ```
 
-#### 7. minio 설치 
-```
-$ kubectl apply -f minio.yaml
-```
+### Gitlab 설치
 
-## DEVOPS 클러스터 구성
+```bash
 
-#### 8. gitlab 설치
-```
-# Gitlab 설치
-$ helm upgrade -i gitlab charts/gitlab-7.10.2.tgz \
+helm repo add gitlab https://charts.gitlab.io
+
+helm upgrade -i gitlab gitlab-8.3.2.tgz \
 --set global.edition=ce \
---set global.hosts.domain=asan \
+--set global.hosts.domain=amc.seoul.kr \
 --set global.ingress.configureCertmanager=false \
---set global.ingress.class=nginx \
+--set global.ingress.provider=traefik \
+--set global.ingress.class=traefik \
 --set certmanager.install=false \
 --set nginx-ingress.enabled=false \
 --set gitlab-runner.install=false \
@@ -214,35 +177,36 @@ $ helm upgrade -i gitlab charts/gitlab-7.10.2.tgz \
 --set registry.enabled=false \
 -n gitlab --create-namespace
 
-# root 사용자 초기 비밀번호 확인
-$ k get -n gitlab secret gitlab-gitlab-initial-root-password -ojsonpath='{.data.password}' | base64 -d
+kubectl get -n gitlab secret gitlab-gitlab-initial-root-password -ojsonpath='{.data.password}' | base64 -d
 
-# login gitlab.asan as root / %YOUR_INITIAL_PASSWORD%
-# https://gitlab.asan/admin/application_settings/general > visibility & access controls > import sources > Repository By URL
+# gitlab 레파지토리 - 브랜치 생성 kw-mvn (main, gradle), kw-mvn-deploy (main) 
 
-# 다음 사용자 계정 생성
-# argo / abcd!234 argo@devops
+git config --global http.sslVerify false
 
-# Import source / deploy repository from github
-# Login argo and import projects
-- https://github.com/flytux/kw-mvn : Project Name > KW-MVN
-- https://github.com/flytux/kw-mvn-deploy : Project Name > KW-MVN-DEPLOY
-- main branch > deploy.yml 파일의 이미지 URL을 harbor.asan/library/kw-mvn 로 변경
+kw-mvn-deploy > main branch > deploy.yml 파일의 이미지 URL을 harbor.asan/library/kw-mvn 로 변경
 
-# Delete default ingress gitlab-webservice
-$ k delete ingress gitlab-webservice-default -n gitlab
+openssl req -x509 -newkey rsa:4096 -sha256 -days 3650 -nodes \
+ -keyout gitlab.key -out gitlab.crt -subj '/CN=gitlab.amc.seoul.kr' \
+ -addext 'subjectAltName=DNS:gitlab.amc.seoul.kr'	
 
-# Gitlab Runner 등록을 위한 사설인증서 생성하여 ingress에 연결
-$ openssl req -x509 -newkey rsa:4096 -sha256 -days 3650 -nodes \
-  -keyout gitlab.key -out gitlab.crt -subj '/CN=gitlab.amc.seoul.kr' \
-  -addext 'subjectAltName=DNS:gitlab.amc.seoul.kr'	
-$ kubectl create secret tls gitlab-ingress-tls --key gitlab.key --cert gitlab.crt -n gitlab
+kubectl create secret tls gitlab-ingress-tls --key gitlab.key --cert gitlab.crt -n gitlab
 
-# Create Ingress 
-$ kubectl -n gitlab apply -f - <<"EOF"
+# Ingress Annotations for tls
+
+  ingress.kubernetes.io/proxy-body-size: "0"
+  ingress.kubernetes.io/ssl-redirect: "true"
+  traefik.ingress.kubernetes.io/router.entrypoints: websecure
+  traefik.ingress.kubernetes.io/router.tls: "true"
+
+kubectl -n gitlab apply -f - <<"EOF"
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
+  annotations:
+    ingress.kubernetes.io/proxy-body-size: "0"
+    ingress.kubernetes.io/ssl-redirect: "true"
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
   name: gitlab-ingress
   namespace: gitlab
 spec:
@@ -264,65 +228,39 @@ spec:
     secretName: gitlab-ingress-tls
 EOF
 
-
-# add to /etc/hosts 
 cat << EOF | sudo tee -a /etc/hosts
 192.168.122.11 gitlab.amc.seoul.kr
 EOF
 
-# Gitlab Runner 용 사설인증서 생성
-$ openssl s_client -showcerts -connect gitlab.amc.seoul.kr:443 -servername gitlab.amc.seoul.kr < /dev/null 2>/dev/null | openssl x509 -outform PEM > gitlab.amc.seoul.kr.crt
-$ k create secret generic gitlab-runner-tls --from-file=gitlab.amc.seoul.kr.crt  -n gitlab
+```
 
-# add in cluster dns gitlab.asan to coredns
-$ k edit cm -n kube-system rke2-coredns-rke2-coredns
-
-data:
-  Corefile: |-
-    .:53 {
-        errors
-        health  {
-            lameduck 5s
-        }
-     hosts {
-     192.168.122.11 gitlab.amc.seoul.kr harbor.amc.seoul.kr # Gitlab Ingress IP
-     fallthrough
-     }
-     ready
-        kubernetes   cluster.local  cluster.local in-addr.arpa ip6.arpa {
-            pods insecure
-            fallthrough in-addr.arpa ip6.arpa
-            ttl 30
-        }
-        prometheus   0.0.0.0:9153
-        forward   . /etc/resolv.conf
-        cache   30
-        loop
-        reload
-        loadbalance
-    }
-    
-$ k run -it --rm curl --image curlimages/curl -- sh
-/ $ ping gitlab.amc.seoul.kr
+### Gitlab-Runner 구성
 
 ```
 
-#### 9. gitlab runner 설치
-```
-# Setup runner and get runner token from KW-MVN project
-# https://gitlab.amc.seoul.kr/argo/kw-mvn/-/runners/new
+openssl s_client -showcerts -connect gitlab.amc.seoul.kr:443 -servername gitlab.amc.seoul.kr < /dev/null 2>/dev/null | openssl x509 -outform PEM > gitlab.amc.seoul.kr.crt
+k create secret generic gitlab-runner-tls --from-file=gitlab.amc.seoul.kr.crt  -n gitlab
 
-# Configuration > Run untagged jobs 체크 > Submit
-# Copy token glrt-wb_BLETYwEdVpP6qCyQX
+CoreDNS 추가
+hosts {
+      192.168.122.11 gitlab.amc.seoul.kr harbor.amc.seoul.kr # Gitlab Ingress IP 
+      fallthrough
+}
+	 
+https://gitlab.amc.seoul.kr/argo/kw-mvn/-/runners/new
 
-$ cat << EOF > gitlab-runner-values.yaml
+# Runner Token 확인
+
+glrt-vZuAwYks8JRqx5GULT-f
+
+cat << EOF > gitlab-runner-values.yaml
 gitlabUrl: https://gitlab.amc.seoul.kr
 
-runnerToken: glrt-wb_BLETYwEdVpP6qCyQX # 저장한 토큰값 사용
+runnerToken: glrt-vZuAwYks8JRqx5GULT-f
 rbac:
   create: true
 
-certsSecretName: gitlab-runner-tls # 생성한 gitlab 인증서/CA기반 secret
+certsSecretName: gitlab-runner-tls 
 
 runners:
   config: |
@@ -335,8 +273,7 @@ runners:
       name = "gitlab-runner-cache-pvc"
 EOF
 
-# create gitlab runner cache pvc
-$ kubectl -n gitlab apply -f - <<"EOF"
+kubectl -n gitlab apply -f - <<"EOF"
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -351,27 +288,60 @@ spec:
       storage: 1Gi
 EOF
 
-# Gitlab Runner 설치
-$ helm upgrade -i gitlab-runner -f gitlab-runner-values.yaml charts/gitlab-runner-0.63.0.tgz -n gitlab
+helm upgrade -i gitlab-runner -f gitlab-runner-values.yaml gitlab-runner-0.68.1.tgz -n gitlab
+
 ```
 
-#### 10. argocd 설치
-```
-# install argocd
-$ kubectl create namespace argocd
-$ kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+### ArgoCD 설치
 
-# 앞에서 설정한 경우 Skip
-# add argocd ssl-passthrough args to ingress-controller
-$ k edit ds -n kube-system rke2-ingress-nginx-controller
+```
+
+kubectl create namespace argocd
+kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+
+# argocd insecure 
+
+argocd-cmd-params-cm
+
+	data:
+	  server.insecure: "true"
+
+# argocd-ingress-route
+
+apiVersion: traefik.containo.us/v1alpha1
+kind: IngressRoute
+metadata:
+  name: argocd-server
+  namespace: argocd
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - kind: Rule
+      match: Host(`argocd.amc.seoul.kr`)
+      priority: 10
+      services:
+        - name: argocd-server
+          port: 80
+    - kind: Rule
+      match: Host(`argocd.amc.seoul.kr`) && Headers(`Content-Type`, `application/grpc`)
+      priority: 11
+      services:
+        - name: argocd-server
+          port: 80
+          scheme: h2c
+  tls: {}
+
+# Restart argocd pod
+
+# Nginx-ingress
+
+k edit ds -n kube-system rke2-ingress-nginx-controller
 
 # add "--enable-ssl-passthrough" at line 53
   - --watch-ingress-without-class=true
   - --enable-ssl-passthrough
-# save and qute (:wq)
-
-# add ingress for argocd
-$ kubectl -n argocd apply -f - <<"EOF"  
+  
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -393,45 +363,25 @@ spec:
             name: argocd-server
             port:
               name: https
-EOF
+			  
+# Check initial admin password	
+		  
+kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d
 
-# get argocd initial password
-$ kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d
+ysdspBnfCeXOqIoK
 
-# add gitlab ca-cert (self-signed)
-- https://argocd.amc.seoul.kr/settings/certs?addTLSCert=true
-- add name gitlab.amc.seoul.kr & paste gitlab.amc.seoul.kr.crt pem file
+https://argocd.amc.seoul.kr/settings/certs?addTLSCert=true
 
-$ cat gitlab.amc.seoul.kr.crt
+add name gitlab.amc.seoul.kr & paste gitlab.amc.seoul.kr.crt pem file
 
-# add argocd app 
+k exec -it -n argocd $(k get pods -l app.kubernetes.io/name=argocd-server -o name -n argocd) bash
 
-$ kn argocd
-$ k exec -it -n argocd $(k get pods -l app.kubernetes.io/name=argocd-server -o name -n argocd) bash 
+argocd login argocd-server.argocd --insecure --username admin --password ysdspBnfCeXOqIoK
 
-# check argocd user id and password
-$ argocd login argocd-server.argocd --insecure --username admin --password e3m7VS-JpcpczVcq
-$ argocd repo add https://gitlab.amc.seoul.kr/argo/kw-mvn-deploy.git --username argo --insecure-skip-server-verification
-# enter gitlab password : abcd!234
+argocd repo add https://gitlab.amc.seoul.kr/argo/kw-mvn-deploy.git --username argo --insecure-skip-server-verification
 
-# Default 프로젝트 등록
-$ kubectl -n argocd apply -f - <<"EOF"
-apiVersion: argoproj.io/v1alpha1
-kind: AppProject
-metadata:
-  name: default
-  namespace: argocd
-spec:
-  sourceRepos:
-    - '*'
-  destinations:
-    - namespace: '*'
-      server: '*'
-  clusterResourceWhitelist:
-    - group: '*'
-      kind: '*'
-EOF
-
+# Create ArgoCD applications
+  
 $ kubectl -n argocd apply -f - <<"EOF"
 apiVersion: argoproj.io/v1alpha1
 kind: Application
@@ -452,12 +402,14 @@ spec:
     syncOptions:
       - CreateNamespace=true
 EOF
-```
-
-#### 11. SAMPLE 빌드 파이프라인 구성
 
 ```
-main 브랜치
+
+---
+
+### Gitlab CICD Pipelines - Main 브랜치
+
+```
 
 variables:
   MAVEN_OPTS: "-Dmaven.repo.local=/cache/maven.repository"
@@ -534,12 +486,11 @@ sync-argocd:
     - argocd app sync $ARGO_APP_NAME --insecure
     - argocd app wait $ARGO_APP_NAME --sync --health --operation --insecure
 
-```
----
+```	
+
+### gradle 브랜치
 
 ```
-gradle 브랜치
-
 variables:
   MAVEN_OPTS: "-Dmaven.repo.local=/cache/maven.repository"
   IMAGE_URL: "harbor.amc.seoul.kr/library"
@@ -582,6 +533,7 @@ update-yaml:
   image: alpine/git:v2.26.2
   stage: update-yaml
   script:
+
     - mkdir deploy && cd deploy
     - git init
 
@@ -617,70 +569,208 @@ sync-argocd:
 
 ```
 
-#### 12. rancher 모니터링 설치
+### 도커이미지 저장
 
 ```
-# Rancher 로그인 > Cluster Tools > Monitoring 설치
+
+nerdctl images | grep -v REPOSITORY | grep -v none | while read line
+do
+  filename=$( echo "$line" | awk '{print $1":"$2".tar"}' | sed 's|:|@|g ; s|/|+|g' )
+  option=$( echo "$line" | awk '{print $1":"$2}' )
+  echo "nerdctl save ${option} -o ${filename}"
+  nerdctl save "${option}" -o "${filename}"
+done
+
+ls *.tar | while read line
+do
+   filename=$( echo "$line" )
+   echo "nerdctl load -i ${filename}"
+   nerdctl load -i "${filename}"
+done
+
 ```
-
-#### 13. loki stack 설치
-
-```
-$ helm upgrade -i loki loki-stack-2.10.2.tgz -n loki --create-namespace
-
-# 그라파나 로그인 admin / prom-operator
-# Loki 데이터 소스 추가 (http://loki.loki:3100)
-# Explorer Log (https://rancher.asan/api/v1/namespaces/cattle-monitoring-system/services/http:rancher-monitoring-grafana:80/proxy/explore)
-```
-
-#### 14. velero 설치
+### 도커이미지 Tag & Push
 
 ```
-# external snapshotter 설치
-$ k create -f charts/external-snapshotter/config/crd/
-$ k create -f charts/external-snapshotter/deploy/kubernetes/snapshot-controller/
+nerdctl tag alpine/git:v2.26.2 harbor.amc.seoul.kr/library/alpine/git:v2.26.2
+nerdctl tag bitnami/minio:latest harbor.amc.seoul.kr/library/bitnami/minio:latest
+nerdctl tag bitnami/postgres-exporter:0.12.0-debian-11-r86 harbor.amc.seoul.kr/library/bitnami/postgres-exporter:0.12.0-debian-11-r86
+nerdctl tag bitnami/postgresql:14.8.0 harbor.amc.seoul.kr/library/bitnami/postgresql:14.8.0
+nerdctl tag bitnami/redis-exporter:1.43.0-debian-11-r4 harbor.amc.seoul.kr/library/bitnami/redis-exporter:1.43.0-debian-11-r4
+nerdctl tag bitnami/redis:6.2.7-debian-11-r11 harbor.amc.seoul.kr/library/bitnami/redis:6.2.7-debian-11-r11
+nerdctl tag curlimages/curl:latest harbor.amc.seoul.kr/library/curlimages/curl:latest
+nerdctl tag gliderlabs/herokuish:latest harbor.amc.seoul.kr/library/gliderlabs/herokuish:latest
+nerdctl tag goharbor/harbor-core:v2.11.1 harbor.amc.seoul.kr/library/goharbor/harbor-core:v2.11.1
+nerdctl tag goharbor/harbor-db:v2.11.1 harbor.amc.seoul.kr/library/goharbor/harbor-db:v2.11.1
+nerdctl tag goharbor/harbor-jobservice:v2.11.1 harbor.amc.seoul.kr/library/goharbor/harbor-jobservice:v2.11.1
+nerdctl tag goharbor/harbor-portal:v2.11.1 harbor.amc.seoul.kr/library/goharbor/harbor-portal:v2.11.1
+nerdctl tag goharbor/harbor-registryctl:v2.11.1 harbor.amc.seoul.kr/library/goharbor/harbor-registryctl:v2.11.1
+nerdctl tag goharbor/redis-photon:v2.11.1 harbor.amc.seoul.kr/library/goharbor/redis-photon:v2.11.1
+nerdctl tag goharbor/registry-photon:v2.11.1 harbor.amc.seoul.kr/library/goharbor/registry-photon:v2.11.1
+nerdctl tag goharbor/trivy-adapter-photon:v2.11.1 harbor.amc.seoul.kr/library/goharbor/trivy-adapter-photon:v2.11.1
+nerdctl tag grafana/grafana:10.0.1 harbor.amc.seoul.kr/library/grafana/grafana:10.0.1
+nerdctl tag grafana/loki:2.6.1 harbor.amc.seoul.kr/library/grafana/loki:2.6.1
+nerdctl tag grafana/promtail:2.7.0 harbor.amc.seoul.kr/library/grafana/promtail:2.7.0
+nerdctl tag docker:20.10.12 harbor.amc.seoul.kr/library/docker:20.10.12
+nerdctl tag docker:20.10.12-dind harbor.amc.seoul.kr/library/docker:20.10.12-dind
+nerdctl tag gradle:7.6-jdk11 harbor.amc.seoul.kr/library/gradle:7.6-jdk11
+nerdctl tag postgres:9.6.16 harbor.amc.seoul.kr/library/postgres:9.6.16
+nerdctl tag redis:7.0.15-alpine harbor.amc.seoul.kr/library/redis:7.0.15-alpine
+nerdctl tag minio/mc:RELEASE.2018-07-13T00-53-22Z harbor.amc.seoul.kr/library/minio/mc:RELEASE.2018-07-13T00-53-22Z
+nerdctl tag minio/minio:RELEASE.2017-12-28T01-21-00Z harbor.amc.seoul.kr/library/minio/minio:RELEASE.2017-12-28T01-21-00Z
+nerdctl tag minio/minio:RELEASE.2021-02-14T04-01-33Z harbor.amc.seoul.kr/library/minio/minio:RELEASE.2021-02-14T04-01-33Z
+nerdctl tag rancher/fleet-agent:v0.10.1 harbor.amc.seoul.kr/library/rancher/fleet-agent:v0.10.1
+nerdctl tag rancher/fleet:v0.10.1 harbor.amc.seoul.kr/library/rancher/fleet:v0.10.1
+nerdctl tag rancher/hardened-calico:v3.28.1-build20240806 harbor.amc.seoul.kr/library/rancher/hardened-calico:v3.28.1-build20240806
+nerdctl tag rancher/hardened-cluster-autoscaler:v1.8.10-build20240124 harbor.amc.seoul.kr/library/rancher/hardened-cluster-autoscaler:v1.8.10-build20240124
+nerdctl tag rancher/hardened-coredns:v1.11.1-build20240305 harbor.amc.seoul.kr/library/rancher/hardened-coredns:v1.11.1-build20240305
+nerdctl tag rancher/hardened-etcd:v3.5.13-k3s1-build20240531 harbor.amc.seoul.kr/library/rancher/hardened-etcd:v3.5.13-k3s1-build20240531
+nerdctl tag rancher/hardened-flannel:v0.25.5-build20240801 harbor.amc.seoul.kr/library/rancher/hardened-flannel:v0.25.5-build20240801
+nerdctl tag rancher/hardened-k8s-metrics-server:v0.7.1-build20240401 harbor.amc.seoul.kr/library/rancher/hardened-k8s-metrics-server:v0.7.1-build20240401
+nerdctl tag rancher/hardened-kubernetes:v1.30.4-rke2r1-build20240815 harbor.amc.seoul.kr/library/rancher/hardened-kubernetes:v1.30.4-rke2r1-build20240815
+nerdctl tag rancher/klipper-helm:v0.8.4-build20240523 harbor.amc.seoul.kr/library/rancher/klipper-helm:v0.8.4-build20240523
+nerdctl tag rancher/kubectl:v1.20.2 harbor.amc.seoul.kr/library/rancher/kubectl:v1.20.2
+nerdctl tag rancher/kubectl:v1.29.2 harbor.amc.seoul.kr/library/rancher/kubectl:v1.29.2
+nerdctl tag rancher/mirrored-bci-micro:15.4.14.3 harbor.amc.seoul.kr/library/rancher/mirrored-bci-micro:15.4.14.3
+nerdctl tag rancher/mirrored-cluster-api-controller:v1.7.3 harbor.amc.seoul.kr/library/rancher/mirrored-cluster-api-controller:v1.7.3
+nerdctl tag rancher/mirrored-grafana-grafana:10.3.3 harbor.amc.seoul.kr/library/rancher/mirrored-grafana-grafana:10.3.3
+nerdctl tag rancher/mirrored-ingress-nginx-kube-webhook-certgen:v1.4.1 harbor.amc.seoul.kr/library/rancher/mirrored-ingress-nginx-kube-webhook-certgen:v1.4.1
+nerdctl tag rancher/mirrored-ingress-nginx-kube-webhook-certgen:v20221220-controller-v1.5.1-58-g787ea74b6 harbor.amc.seoul.kr/library/rancher/mirrored-ingress-nginx-kube-webhook-certgen:v20221220-controller-v1.5.1-58-g787ea74b6
+nerdctl tag rancher/mirrored-kiwigrid-k8s-sidecar:1.26.1 harbor.amc.seoul.kr/library/rancher/mirrored-kiwigrid-k8s-sidecar:1.26.1
+nerdctl tag rancher/mirrored-kube-state-metrics-kube-state-metrics:v2.10.1 harbor.amc.seoul.kr/library/rancher/mirrored-kube-state-metrics-kube-state-metrics:v2.10.1
+nerdctl tag rancher/mirrored-library-nginx:1.24.0-alpine harbor.amc.seoul.kr/library/rancher/mirrored-library-nginx:1.24.0-alpine
+nerdctl tag rancher/mirrored-pause:3.6 harbor.amc.seoul.kr/library/rancher/mirrored-pause:3.6
+nerdctl tag rancher/mirrored-prometheus-adapter-prometheus-adapter:v0.10.0 harbor.amc.seoul.kr/library/rancher/mirrored-prometheus-adapter-prometheus-adapter:v0.10.0
+nerdctl tag rancher/mirrored-prometheus-alertmanager:v0.27.0 harbor.amc.seoul.kr/library/rancher/mirrored-prometheus-alertmanager:v0.27.0
+nerdctl tag rancher/mirrored-prometheus-node-exporter:v1.7.0 harbor.amc.seoul.kr/library/rancher/mirrored-prometheus-node-exporter:v1.7.0
+nerdctl tag rancher/mirrored-prometheus-operator-prometheus-config-reloader:v0.72.0 harbor.amc.seoul.kr/library/rancher/mirrored-prometheus-operator-prometheus-config-reloader:v0.72.0
+nerdctl tag rancher/mirrored-prometheus-operator-prometheus-operator:v0.72.0 harbor.amc.seoul.kr/library/rancher/mirrored-prometheus-operator-prometheus-operator:v0.72.0
+nerdctl tag rancher/mirrored-prometheus-prometheus:v2.50.1 harbor.amc.seoul.kr/library/rancher/mirrored-prometheus-prometheus:v2.50.1
+nerdctl tag rancher/mirrored-sig-storage-snapshot-controller:v6.2.1 harbor.amc.seoul.kr/library/rancher/mirrored-sig-storage-snapshot-controller:v6.2.1
+nerdctl tag rancher/mirrored-sig-storage-snapshot-validation-webhook:v6.2.2 harbor.amc.seoul.kr/library/rancher/mirrored-sig-storage-snapshot-validation-webhook:v6.2.2
+nerdctl tag rancher/nginx-ingress-controller:v1.10.4-hardened2 harbor.amc.seoul.kr/library/rancher/nginx-ingress-controller:v1.10.4-hardened2
+nerdctl tag rancher/pushprox-client:v0.1.3-rancher2-client harbor.amc.seoul.kr/library/rancher/pushprox-client:v0.1.3-rancher2-client
+nerdctl tag rancher/pushprox-proxy:v0.1.3-rancher2-proxy harbor.amc.seoul.kr/library/rancher/pushprox-proxy:v0.1.3-rancher2-proxy
+nerdctl tag rancher/rancher-webhook:v0.5.1 harbor.amc.seoul.kr/library/rancher/rancher-webhook:v0.5.1
+nerdctl tag rancher/rancher:v2.9.1 harbor.amc.seoul.kr/library/rancher/rancher:v2.9.1
+nerdctl tag rancher/rke2-cloud-provider:v1.29.3-build20240515 harbor.amc.seoul.kr/library/rancher/rke2-cloud-provider:v1.29.3-build20240515
+nerdctl tag rancher/rke2-runtime:v1.30.4-rke2r1 harbor.amc.seoul.kr/library/rancher/rke2-runtime:v1.30.4-rke2r1
+nerdctl tag rancher/shell:v0.2.1 harbor.amc.seoul.kr/library/rancher/shell:v0.2.1
+nerdctl tag ghcr.io/dexidp/dex:v2.38.0 harbor.amc.seoul.kr/library/ghcr.io/dexidp/dex:v2.38.0
+nerdctl tag quay.io/argoproj/argocd:v2.12.3 harbor.amc.seoul.kr/library/quay.io/argoproj/argocd:v2.12.3
+nerdctl tag quay.io/argoproj/argocd:v2.4.8 harbor.amc.seoul.kr/library/quay.io/argoproj/argocd:v2.4.8
+nerdctl tag quay.io/jetstack/cert-manager-cainjector:v1.10.0 harbor.amc.seoul.kr/library/quay.io/jetstack/cert-manager-cainjector:v1.10.0
+nerdctl tag quay.io/jetstack/cert-manager-controller:v1.10.0 harbor.amc.seoul.kr/library/quay.io/jetstack/cert-manager-controller:v1.10.0
+nerdctl tag quay.io/jetstack/cert-manager-webhook:v1.10.0 harbor.amc.seoul.kr/library/quay.io/jetstack/cert-manager-webhook:v1.10.0
+nerdctl tag registry.gitlab.com/gitlab-org/build/cng/certificates:v17.3.2 harbor.amc.seoul.kr/library/registry.gitlab.com/gitlab-org/build/cng/certificates:v17.3.2
+nerdctl tag registry.gitlab.com/gitlab-org/build/cng/cfssl-self-sign:v17.3.2 harbor.amc.seoul.kr/library/registry.gitlab.com/gitlab-org/build/cng/cfssl-self-sign:v17.3.2
+nerdctl tag registry.gitlab.com/gitlab-org/build/cng/gitaly:v17.3.2 harbor.amc.seoul.kr/library/registry.gitlab.com/gitlab-org/build/cng/gitaly:v17.3.2
+nerdctl tag registry.gitlab.com/gitlab-org/build/cng/gitlab-base:v17.3.2 harbor.amc.seoul.kr/library/registry.gitlab.com/gitlab-org/build/cng/gitlab-base:v17.3.2
+nerdctl tag registry.gitlab.com/gitlab-org/build/cng/gitlab-exporter:15.0.0 harbor.amc.seoul.kr/library/registry.gitlab.com/gitlab-org/build/cng/gitlab-exporter:15.0.0
+nerdctl tag registry.gitlab.com/gitlab-org/build/cng/gitlab-kas:v17.3.2 harbor.amc.seoul.kr/library/registry.gitlab.com/gitlab-org/build/cng/gitlab-kas:v17.3.2
+nerdctl tag registry.gitlab.com/gitlab-org/build/cng/gitlab-shell:v14.38.0 harbor.amc.seoul.kr/library/registry.gitlab.com/gitlab-org/build/cng/gitlab-shell:v14.38.0
+nerdctl tag registry.gitlab.com/gitlab-org/build/cng/gitlab-sidekiq-ce:v17.3.2 harbor.amc.seoul.kr/library/registry.gitlab.com/gitlab-org/build/cng/gitlab-sidekiq-ce:v17.3.2
+nerdctl tag registry.gitlab.com/gitlab-org/build/cng/gitlab-toolbox-ce:v17.3.2 harbor.amc.seoul.kr/library/registry.gitlab.com/gitlab-org/build/cng/gitlab-toolbox-ce:v17.3.2
+nerdctl tag registry.gitlab.com/gitlab-org/build/cng/gitlab-webservice-ce:v17.3.2 harbor.amc.seoul.kr/library/registry.gitlab.com/gitlab-org/build/cng/gitlab-webservice-ce:v17.3.2
+nerdctl tag registry.gitlab.com/gitlab-org/build/cng/gitlab-workhorse-ce:v17.3.2 harbor.amc.seoul.kr/library/registry.gitlab.com/gitlab-org/build/cng/gitlab-workhorse-ce:v17.3.2
+nerdctl tag registry.gitlab.com/gitlab-org/build/cng/kubectl:v17.3.2 harbor.amc.seoul.kr/library/registry.gitlab.com/gitlab-org/build/cng/kubectl:v17.3.2
+nerdctl tag registry.gitlab.com/gitlab-org/cluster-integration/auto-build-image:v4.3.0 harbor.amc.seoul.kr/library/registry.gitlab.com/gitlab-org/cluster-integration/auto-build-image:v4.3.0
+nerdctl tag registry.gitlab.com/gitlab-org/gitlab-runner/gitlab-runner-helper:x86_64-v17.3.1 harbor.amc.seoul.kr/library/registry.gitlab.com/gitlab-org/gitlab-runner/gitlab-runner-helper:x86_64-v17.3.1
+nerdctl tag registry.gitlab.com/gitlab-org/gitlab-runner:alpine-v17.3.1 harbor.amc.seoul.kr/library/registry.gitlab.com/gitlab-org/gitlab-runner:alpine-v17.3.1
+nerdctl tag registry.k8s.io/sig-storage/csi-node-driver-registrar:v2.9.0 harbor.amc.seoul.kr/library/registry.k8s.io/sig-storage/csi-node-driver-registrar:v2.9.0
+nerdctl tag registry.k8s.io/sig-storage/csi-provisioner:v3.6.1 harbor.amc.seoul.kr/library/registry.k8s.io/sig-storage/csi-provisioner:v3.6.1
+nerdctl tag registry.k8s.io/sig-storage/csi-snapshotter:v6.3.1 harbor.amc.seoul.kr/library/registry.k8s.io/sig-storage/csi-snapshotter:v6.3.1
+nerdctl tag registry.k8s.io/sig-storage/livenessprobe:v2.11.0 harbor.amc.seoul.kr/library/registry.k8s.io/sig-storage/livenessprobe:v2.11.0
+nerdctl tag registry.k8s.io/sig-storage/nfsplugin:v4.5.0 harbor.amc.seoul.kr/library/registry.k8s.io/sig-storage/nfsplugin:v4.5.0
 
-# volume snapshot class 생성
-$ kubectl -n kube-system apply -f - <<"EOF"
-kind: VolumeSnapshotClass
-apiVersion: snapshot.storage.k8s.io/v1
-metadata:
-  name: cs-nfs-snapshotclass
-  labels:
-    velero.io/csi-volumesnapshot-class: "true"
-driver: nfs.csi.k8s.io
-deletionPolicy: Delete
-EOF
+nerdctl push harbor.amc.seoul.kr/library/alpine/git:v2.26.2
+nerdctl push harbor.amc.seoul.kr/library/bitnami/minio:latest
+nerdctl push harbor.amc.seoul.kr/library/bitnami/postgres-exporter:0.12.0-debian-11-r86
+nerdctl push harbor.amc.seoul.kr/library/bitnami/postgresql:14.8.0
+nerdctl push harbor.amc.seoul.kr/library/bitnami/redis-exporter:1.43.0-debian-11-r4
+nerdctl push harbor.amc.seoul.kr/library/bitnami/redis:6.2.7-debian-11-r11
+nerdctl push harbor.amc.seoul.kr/library/curlimages/curl:latest
+nerdctl push harbor.amc.seoul.kr/library/gliderlabs/herokuish:latest
+nerdctl push harbor.amc.seoul.kr/library/goharbor/harbor-core:v2.11.1
+nerdctl push harbor.amc.seoul.kr/library/goharbor/harbor-db:v2.11.1
+nerdctl push harbor.amc.seoul.kr/library/goharbor/harbor-jobservice:v2.11.1
+nerdctl push harbor.amc.seoul.kr/library/goharbor/harbor-portal:v2.11.1
+nerdctl push harbor.amc.seoul.kr/library/goharbor/harbor-registryctl:v2.11.1
+nerdctl push harbor.amc.seoul.kr/library/goharbor/redis-photon:v2.11.1
+nerdctl push harbor.amc.seoul.kr/library/goharbor/registry-photon:v2.11.1
+nerdctl push harbor.amc.seoul.kr/library/goharbor/trivy-adapter-photon:v2.11.1
+nerdctl push harbor.amc.seoul.kr/library/grafana/grafana:10.0.1
+nerdctl push harbor.amc.seoul.kr/library/grafana/loki:2.6.1
+nerdctl push harbor.amc.seoul.kr/library/grafana/promtail:2.7.0
+nerdctl push harbor.amc.seoul.kr/library/docker:20.10.12
+nerdctl push harbor.amc.seoul.kr/library/docker:20.10.12-dind
+nerdctl push harbor.amc.seoul.kr/library/gradle:7.6-jdk11
+nerdctl push harbor.amc.seoul.kr/library/postgres:9.6.16
+nerdctl push harbor.amc.seoul.kr/library/redis:7.0.15-alpine
+nerdctl push harbor.amc.seoul.kr/library/minio/mc:RELEASE.2018-07-13T00-53-22Z
+nerdctl push harbor.amc.seoul.kr/library/minio/minio:RELEASE.2017-12-28T01-21-00Z
+nerdctl push harbor.amc.seoul.kr/library/minio/minio:RELEASE.2021-02-14T04-01-33Z
+nerdctl push harbor.amc.seoul.kr/library/rancher/fleet-agent:v0.10.1
+nerdctl push harbor.amc.seoul.kr/library/rancher/fleet:v0.10.1
+nerdctl push harbor.amc.seoul.kr/library/rancher/hardened-calico:v3.28.1-build20240806
+nerdctl push harbor.amc.seoul.kr/library/rancher/hardened-cluster-autoscaler:v1.8.10-build20240124
+nerdctl push harbor.amc.seoul.kr/library/rancher/hardened-coredns:v1.11.1-build20240305
+nerdctl push harbor.amc.seoul.kr/library/rancher/hardened-etcd:v3.5.13-k3s1-build20240531
+nerdctl push harbor.amc.seoul.kr/library/rancher/hardened-flannel:v0.25.5-build20240801
+nerdctl push harbor.amc.seoul.kr/library/rancher/hardened-k8s-metrics-server:v0.7.1-build20240401
+nerdctl push harbor.amc.seoul.kr/library/rancher/hardened-kubernetes:v1.30.4-rke2r1-build20240815
+nerdctl push harbor.amc.seoul.kr/library/rancher/klipper-helm:v0.8.4-build20240523
+nerdctl push harbor.amc.seoul.kr/library/rancher/kubectl:v1.20.2
+nerdctl push harbor.amc.seoul.kr/library/rancher/kubectl:v1.29.2
+nerdctl push harbor.amc.seoul.kr/library/rancher/mirrored-bci-micro:15.4.14.3
+nerdctl push harbor.amc.seoul.kr/library/rancher/mirrored-cluster-api-controller:v1.7.3
+nerdctl push harbor.amc.seoul.kr/library/rancher/mirrored-grafana-grafana:10.3.3
+nerdctl push harbor.amc.seoul.kr/library/rancher/mirrored-ingress-nginx-kube-webhook-certgen:v1.4.1
+nerdctl push harbor.amc.seoul.kr/library/rancher/mirrored-ingress-nginx-kube-webhook-certgen:v20221220-controller-v1.5.1-58-g787ea74b6
+nerdctl push harbor.amc.seoul.kr/library/rancher/mirrored-kiwigrid-k8s-sidecar:1.26.1
+nerdctl push harbor.amc.seoul.kr/library/rancher/mirrored-kube-state-metrics-kube-state-metrics:v2.10.1
+nerdctl push harbor.amc.seoul.kr/library/rancher/mirrored-library-nginx:1.24.0-alpine
+nerdctl push harbor.amc.seoul.kr/library/rancher/mirrored-pause:3.6
+nerdctl push harbor.amc.seoul.kr/library/rancher/mirrored-prometheus-adapter-prometheus-adapter:v0.10.0
+nerdctl push harbor.amc.seoul.kr/library/rancher/mirrored-prometheus-alertmanager:v0.27.0
+nerdctl push harbor.amc.seoul.kr/library/rancher/mirrored-prometheus-node-exporter:v1.7.0
+nerdctl push harbor.amc.seoul.kr/library/rancher/mirrored-prometheus-operator-prometheus-config-reloader:v0.72.0
+nerdctl push harbor.amc.seoul.kr/library/rancher/mirrored-prometheus-operator-prometheus-operator:v0.72.0
+nerdctl push harbor.amc.seoul.kr/library/rancher/mirrored-prometheus-prometheus:v2.50.1
+nerdctl push harbor.amc.seoul.kr/library/rancher/mirrored-sig-storage-snapshot-controller:v6.2.1
+nerdctl push harbor.amc.seoul.kr/library/rancher/mirrored-sig-storage-snapshot-validation-webhook:v6.2.2
+nerdctl push harbor.amc.seoul.kr/library/rancher/nginx-ingress-controller:v1.10.4-hardened2
+nerdctl push harbor.amc.seoul.kr/library/rancher/pushprox-client:v0.1.3-rancher2-client
+nerdctl push harbor.amc.seoul.kr/library/rancher/pushprox-proxy:v0.1.3-rancher2-proxy
+nerdctl push harbor.amc.seoul.kr/library/rancher/rancher-webhook:v0.5.1
+nerdctl push harbor.amc.seoul.kr/library/rancher/rancher:v2.9.1
+nerdctl push harbor.amc.seoul.kr/library/rancher/rke2-cloud-provider:v1.29.3-build20240515
+nerdctl push harbor.amc.seoul.kr/library/rancher/rke2-runtime:v1.30.4-rke2r1
+nerdctl push harbor.amc.seoul.kr/library/rancher/shell:v0.2.1
+nerdctl push harbor.amc.seoul.kr/library/ghcr.io/dexidp/dex:v2.38.0
+nerdctl push harbor.amc.seoul.kr/library/quay.io/argoproj/argocd:v2.12.3
+nerdctl push harbor.amc.seoul.kr/library/quay.io/jetstack/cert-manager-cainjector:v1.10.0
+nerdctl push harbor.amc.seoul.kr/library/quay.io/jetstack/cert-manager-controller:v1.10.0
+nerdctl push harbor.amc.seoul.kr/library/quay.io/jetstack/cert-manager-webhook:v1.10.0
+nerdctl push harbor.amc.seoul.kr/library/registry.gitlab.com/gitlab-org/build/cng/certificates:v17.3.2
+nerdctl push harbor.amc.seoul.kr/library/registry.gitlab.com/gitlab-org/build/cng/cfssl-self-sign:v17.3.2
+nerdctl push harbor.amc.seoul.kr/library/registry.gitlab.com/gitlab-org/build/cng/gitaly:v17.3.2
+nerdctl push harbor.amc.seoul.kr/library/registry.gitlab.com/gitlab-org/build/cng/gitlab-base:v17.3.2
+nerdctl push harbor.amc.seoul.kr/library/registry.gitlab.com/gitlab-org/build/cng/gitlab-exporter:15.0.0
+nerdctl push harbor.amc.seoul.kr/library/registry.gitlab.com/gitlab-org/build/cng/gitlab-kas:v17.3.2
+nerdctl push harbor.amc.seoul.kr/library/registry.gitlab.com/gitlab-org/build/cng/gitlab-shell:v14.38.0
+nerdctl push harbor.amc.seoul.kr/library/registry.gitlab.com/gitlab-org/build/cng/gitlab-sidekiq-ce:v17.3.2
+nerdctl push harbor.amc.seoul.kr/library/registry.gitlab.com/gitlab-org/build/cng/gitlab-toolbox-ce:v17.3.2
+nerdctl push harbor.amc.seoul.kr/library/registry.gitlab.com/gitlab-org/build/cng/gitlab-webservice-ce:v17.3.2
+nerdctl push harbor.amc.seoul.kr/library/registry.gitlab.com/gitlab-org/build/cng/gitlab-workhorse-ce:v17.3.2
+nerdctl push harbor.amc.seoul.kr/library/registry.gitlab.com/gitlab-org/build/cng/kubectl:v17.3.2
+nerdctl push harbor.amc.seoul.kr/library/registry.gitlab.com/gitlab-org/cluster-integration/auto-build-image:v4.3.0
+nerdctl push harbor.amc.seoul.kr/library/registry.gitlab.com/gitlab-org/gitlab-runner/gitlab-runner-helper:x86_64-v17.3.1
+nerdctl push harbor.amc.seoul.kr/library/registry.gitlab.com/gitlab-org/gitlab-runner:alpine-v17.3.1
+nerdctl push harbor.amc.seoul.kr/library/registry.k8s.io/sig-storage/csi-node-driver-registrar:v2.9.0
+nerdctl push harbor.amc.seoul.kr/library/registry.k8s.io/sig-storage/csi-provisioner:v3.6.1
+nerdctl push harbor.amc.seoul.kr/library/registry.k8s.io/sig-storage/csi-snapshotter:v6.3.1
+nerdctl push harbor.amc.seoul.kr/library/registry.k8s.io/sig-storage/livenessprobe:v2.11.0
+nerdctl push harbor.amc.seoul.kr/library/registry.k8s.io/sig-storage/nfsplugin:v4.5.0
 
-$ cp charts/velero /usr/local/bin
-
-# credential 생성
-$ cat << EOF >> credential-velero
-[default]
-aws_access_key_id = minio
-aws_secret_access_key = minio123
-EOF
-
-$ velero install --provider velero.io/aws \
- --bucket velero --image velero/velero:v1.13.2 \
- --plugins velero/velero-plugin-for-aws:v1.9.2,velero/velero-plugin-for-csi:v0.7.0 \
- --backup-location-config region=minio-default,s3ForcePathStyle="true",s3Url=http://minio.minio:9000 \
- --features=EnableCSI --snapshot-location-config region=minio-default \
- --use-volume-snapshots=true --secret-file=./credential-velero
-
-$ k apply -f nginx-example.yaml
-$ k run --rm -it curly --image=curlimages/curl sh
-$ curl -v my-nginx.nginx-example
-
-$ k delete ns nginx-example
-
-$ velero restore create --from-backup nginx
-$ kn nginx-example
-$ k exec -it $(k get pods -l app=nginx -o name) cat /var/log/nginx/access.log
 ```
-
----
-
-locust
-
-helm repo add deliveryhero https://charts.deliveryhero.io/
