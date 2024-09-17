@@ -421,7 +421,7 @@ variables:
   REGISTRY_USER_PASSWORD: "Harbor12345"
   ARGO_URL: "argocd-server.argocd"
   ARGO_USER_ID: "admin"
-  ARGO_USER_PASSWORD: "e3m7VS-JpcpczVcq"
+  ARGO_USER_PASSWORD: "password!@#$"
   ARGO_APP_NAME: "kw-mvn"
 
 stages:
@@ -430,7 +430,7 @@ stages:
   - sync-argo-app
 
 maven-jib-build:
-  image: gcr.io/cloud-builders/mvn@sha256:57523fc43394d6d9d2414ee8d1c85ed7a13460cbb268c3cd16d28cfb3859e641
+  image: gcr.io/cloud-builders/mvn:amc
   stage: maven-jib-build
   script:
     - COMMIT_TIME="$(date -d "$CI_COMMIT_TIMESTAMP" +"%Y%m%d-%H%M%S")"
@@ -501,7 +501,7 @@ variables:
   REGISTRY_USER_PASSWORD: "Harbor12345"
   ARGO_URL: "argocd-server.argocd"
   ARGO_USER_ID: "admin"
-  ARGO_USER_PASSWORD: "e3m7VS-JpcpczVcq"
+  ARGO_USER_PASSWORD: "password!@#$"
   ARGO_APP_NAME: "kw-mvn"
 
 stages:
