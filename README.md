@@ -243,7 +243,7 @@ k create secret generic gitlab-runner-tls --from-file=gitlab.amc.seoul.kr.crt  -
 
 CoreDNS 추가
 hosts {
-      192.168.122.11 gitlab.amc.seoul.kr harbor.amc.seoul.kr # Gitlab Ingress IP 
+      10.10.1.1 gitlab.amc.seoul.kr harbor.amc.seoul.kr # Gitlab Ingress IP 
       fallthrough
 }
 	 
@@ -478,13 +478,13 @@ update-yaml:
     - git -c http.sslVerify=false push origin $CI_COMMIT_BRANCH
 
 sync-argocd:
-  image: quay.io/argoproj/argocd:v2.4.8
+  image: quay.io/argoproj/argocd:v2.12.3
   stage: sync-argo-app
   script:
-    - argocd login $ARGO_URL --username $ARGO_USER_ID --password $ARGO_USER_PASSWORD --insecure
+    - argocd login $ARGO_URL --username $ARGO_USER_ID --password $ARGO_USER_PASSWORD --plaintext
 
-    - argocd app sync $ARGO_APP_NAME --insecure
-    - argocd app wait $ARGO_APP_NAME --sync --health --operation --insecure
+    - argocd app sync $ARGO_APP_NAME --plaintext
+    - argocd app wait $ARGO_APP_NAME --sync --health --operation --plaintext
 
 ```	
 
@@ -559,13 +559,13 @@ update-yaml:
     - git -c http.sslVerify=false push origin main
 
 sync-argocd:
-  image: quay.io/argoproj/argocd:v2.4.8
+  image: quay.io/argoproj/argocd:v2.12.3
   stage: sync-argo-app
   script:
-    - argocd login $ARGO_URL --username $ARGO_USER_ID --password $ARGO_USER_PASSWORD --insecure
+    - argocd login $ARGO_URL --username $ARGO_USER_ID --password $ARGO_USER_PASSWORD --plaintext
 
-    - argocd app sync $ARGO_APP_NAME --insecure
-    - argocd app wait $ARGO_APP_NAME --sync --health --operation --insecure
+    - argocd app sync $ARGO_APP_NAME --plaintext
+    - argocd app wait $ARGO_APP_NAME --sync --health --operation --plaintext
 
 ```
 
