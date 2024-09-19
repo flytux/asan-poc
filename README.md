@@ -1,6 +1,8 @@
 ---
+
 - Nutanix Infra에 오픈소스 CI/CD 서비스 설치
 - Traefik Ingress Controller, Velero 등 Nutanix 서비스 이용
+
 ---
 ### Cert-Manager 설치
 
