@@ -1,0 +1,19 @@
+[plugins]
+  [plugins."io.containerd.grpc.v1.cri"]
+   [plugins."io.containerd.grpc.v1.cri".containerd]
+      [plugins."io.containerd.grpc.v1.cri".containerd.runtimes]
+        [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc]
+          runtime_type = "io.containerd.runc.v2"
+          [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc.options]
+            SystemdCgroup = true
+      [plugins."io.containerd.grpc.v1.cri".registry]
+        [plugins."io.containerd.grpc.v1.cri".registry.mirrors]
+          [plugins."io.containerd.grpc.v1.cri".registry.mirrors."harbor.amc.seoul.kr"]
+            endpoint = ["https://harbor.amc.seoul.kr"]
+            [plugins."io.containerd.grpc.v1.cri".registry.configs."harbor.amc.seoul.kr".tls]
+              ca_file = "/etc/pki/ca-trust/source/anchors/harbor.crt"
+              cert_file = "/etc/pki/ca-trust/source/anchors/harbor.crt"
+              key_file = "/etc/pki/ca-trust/source/anchors/harbor.key" 
+            [plugins."io.containerd.grpc.v1.cri".registry.configs."harbor.amc.seoul.kr".auth]
+              username = "admin"
+              password = "Harbor12345"
