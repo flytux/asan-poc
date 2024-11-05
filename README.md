@@ -10,7 +10,7 @@
 
 ```
 
-#### 1. rke2 클러스터 생성 - terraform
+#### 1-1. rke2 클러스터 생성 - terraform
 ```
 
 - ssh-key 생성 및 각 노드 별 root 계정에 authorized_keys 추가
@@ -22,7 +22,7 @@
 https://github.com/flytux/terraform-kube/rke2
 
 ```
-#### 1. rke2 클러스터 생성 - manual installation
+#### 1-2. rke2 클러스터 생성 - manual installation
 
 ```
 # 마스터 노드 설치
