@@ -90,7 +90,6 @@ exportfs -v
 ```bash
 
 curl -skSL https://raw.githubusercontent.com/kubernetes-csi/csi-driver-nfs/v4.5.0/deploy/install-driver.sh | bash -s v4.5.0 --
-cat install-driver.sh | bash -s v4.5.0 --
 
 cat <<EOF > nfs-sc.yml
 apiVersion: storage.k8s.io/v1
