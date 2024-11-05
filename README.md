@@ -35,7 +35,7 @@ EOF
 
 # 클러스터 노드 추가
 curl -sfL https://get.rke2.io | INSTALL_RKE2_TYPE="agent" sh -
-systemctl enable rke2-agent  
+systemctl enable rke2-agent --now
 
 # 마스터 노드 접속 후
 # 클러스터 상태 확인
