@@ -20,7 +20,46 @@
 
 # tf apply -auto-approve
 https://github.com/flytux/terraform-kube/rke2
+
 ```
+#### 1. rke2 클러스터 생성 - manual installation
+
+```
+# 마스터 노드 설치
+curl -sfL https://get.rke2.io | sh -
+systemctl enable rke2-server --now
+
+# KubeConfig 설정
+mkdir ~/.kube
+cp /etc/rancher/rke2/rke2.yaml ~/.kube/config
+
+# 클러스터 상태 확인
+kubectl get nodes
+kubectl get pods -A
+
+# 클러스터 토큰 확인
+cat /var/lib/rancher/rke2/server/token
+
+# 워커노드 설치
+# 워커노드 ssh 접속
+
+# 클러스터 노드 추가용 설정 파일 생성
+mkdir -p /etc/rancher/rke2
+cat <<EOF >> /etc/rancher/rke2/config.yaml
+server: https://마스터노드_IP:9345
+token: 클러스터)토큰
+EOF
+
+# 클러스터 노드 추가
+curl -sfL https://get.rke2.io | INSTALL_RKE2_TYPE="agent" sh -
+systemctl enable rke2-agent  
+
+# 마스터 노드 접속 후
+# 클러스터 상태 확인
+kubectl get nodes
+kubectl get pods -A
+```
+
 
 ## MGMT 클러스터 구성
 
