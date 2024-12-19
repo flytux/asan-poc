@@ -60,7 +60,7 @@ helm repo add rancher-latest https://releases.rancher.com/server-charts/latest
  
 helm repo update
  
-helm upgrade -i rancher rancher-2.9.1.tgz \
+helm upgrade -i rancher rancher-2.10.1.tgz \
 --set hostname=rancher.amc.seoul.kr --set bootstrapPassword=admin \
 --set replicas=1 --set global.cattle.psp.enabled=false \
 --set auditLog.level=1 \
@@ -117,8 +117,8 @@ kubectl patch storageclass nfs-csi -n kube-system -p '{"metadata": {"annotations
 ```bash
  
 openssl req -x509 -newkey rsa:4096 -sha256 -days 3650 -nodes \
-  -keyout harbor.key -out harbor.crt -subj '/CN=harbor.amc.seoul.kr' \
-  -addext 'subjectAltName=DNS:harbor.amc.seoul.kr'
+  -keyout harbor.key -out harbor.crt -subj '/CN=harbor.local' \
+  -addext 'subjectAltName=DNS:harbor.local'
 
 kubectl create ns harbor
 kubectl create secret tls harbor-ingress-tls --key harbor.key --cert harbor.crt -n harbor
@@ -134,26 +134,28 @@ expose:
   ingress:
     hosts:
       core: harbor.amc.seoul.kr
+    className: traefik
+    annotations:
+      traefik.ingress.kubernetes.io/router.entrypoints: websecure
+      traefik.ingress.kubernetes.io/router.tls: "true"
 externalURL: https://harbor.amc.seoul.kr
 EOF
 
 helm upgrade -i harbor harbor/harbor -n harbor -f harbor-values.yaml 
 
-# Ingress Annotations for tls
-
-  traefik.ingress.kubernetes.io/router.entrypoints: websecure
-  traefik.ingress.kubernetes.io/router.tls: "true"
-
-
 scp harbor.key node-01:/etc/pki/ca-trust/source/anchors/
 scp harbor.crt node-01:/etc/pki/ca-trust/source/anchors/
+
+# Ubuntu
+scp harbor.key node-01:/usr/local/share/ca-certificates
+scp harbor.crt node-01:/usr/local/share/ca-certificates
 
 ssh node-01 update-ca-trust
 
 ssh node-01
 
 cat << EOF >> /etc/hosts
-192.168.122.11 harbor.amc.seoul.kr
+192.168.122.11 harbor.local
 EOF
 
 # RKE2 / K3S registry
@@ -162,9 +164,9 @@ cat << EOF > /etc/rancher/rke2/registries.yaml
 mirrors:
   docker.io:
     endpoint:
-      - "https://harbor.amc.seoul.kr"
+      - "https://harbor.local"
 configs:
-  "harbor.amc.seou.kr":
+  "harbor.local":
     auth:
       username: admin # this is the registry username
       password: Harbor12345 # this is the registry password
