@@ -491,7 +491,7 @@ spec:
     server: 'https://kubernetes.default.svc'
   source:
     path: .
-    repoURL: 'https://gitlab.amc.seoul.kr/argo/kw-mvn-deploy.git'
+    repoURL: 'https://gitlab.local/argo/kw-mvn-deploy.git'
     targetRevision: main
   sources: []
   project: default
@@ -510,10 +510,10 @@ EOF
 
 variables:
   MAVEN_OPTS: "-Dmaven.repo.local=/cache/maven.repository"
-  IMAGE_URL: "harbor.amc.seoul.kr/library"
+  IMAGE_URL: "harbor.local/library"
   IMAGE: "kw-mvn"
   DEPLOY_REPO_URL: "https://gitlab.amc.seoul.kr/argo/kw-mvn-deploy.git"
-  DEPLOY_REPO_CREDENTIALS: "https://argo:abcd!234@gitlab.amc.seoul.kr/argo/kw-mvn-deploy.git"
+  DEPLOY_REPO_CREDENTIALS: "https://argo:password!@#$@gitlab.local/argo/kw-mvn-deploy.git"
   REGISTRY_USER_ID: "admin"
   REGISTRY_USER_PASSWORD: "Harbor12345"
   ARGO_URL: "argocd-server.argocd"
