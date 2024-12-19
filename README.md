@@ -331,7 +331,7 @@ spec:
       storage: 1Gi
 EOF
 
-helm upgrade -i gitlab-runner -f gitlab-runner-values.yaml gitlab-runner-0.68.1.tgz -n gitlab
+helm upgrade -i gitlab-runner -f gitlab-runner-values.yaml gitlab-runner-0.71.1.tgz -n gitlab
 
 ```
 
