@@ -253,7 +253,7 @@ metadata:
   name: gitlab-ingress
   namespace: gitlab
 spec:
-  ingressClassName: nginx
+  ingressClassName: traefik
   rules:
   - host: gitlab.amc.seoul.kr
     http:
@@ -267,12 +267,12 @@ spec:
         pathType: Prefix
   tls:
   - hosts:
-    - gitlab.amc.seoul.kr
+    - gitlab.local
     secretName: gitlab-ingress-tls
 EOF
 
 cat << EOF | sudo tee -a /etc/hosts
-192.168.122.11 gitlab.amc.seoul.kr
+192.168.122.11 gitlab.local
 EOF
 
 ```
