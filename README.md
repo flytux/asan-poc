@@ -43,6 +43,41 @@ kubectl get nodes
 kubectl get pods -A
 ```
 
+### Traefik 설치
+
+```bash
+
+helm repo add traefik https://traefik.github.io/charts
+
+helm upgrade -i traefik -n kube-system traefik-27.0.2.tgz -n kube-system
+
+cat << EOF > ipaddress-pool.yml
+apiVersion: metallb.io/v1beta1
+kind: IPAddressPool
+metadata:
+  name: default-pool
+  namespace: metallb-system
+spec:
+  addresses:
+  - 10.10.1.1-10.10.1.250
+EOF
+
+cat << EOF > l2advertisement.yml
+apiVersion: metallb.io/v1beta1
+kind: L2Advertisement
+metadata:
+  name: default
+  namespace: metallb-system
+spec:
+  ipAddressPools:
+  - default-pool
+EOF
+
+kubectl apply -f https://raw.githubusercontent.com/metallb/metallb/v0.14.5/config/manifests/metallb-native.yaml
+
+kubectl apply -f ./
+
+```
 
 ### Cert-Manager 설치
 
@@ -361,19 +396,38 @@ spec:
     - websecure
   routes:
     - kind: Rule
-      match: Host(`argocd.amc.seoul.kr`)
+      match: Host(`argocd.local`)
       priority: 10
       services:
         - name: argocd-server
           port: 80
     - kind: Rule
-      match: Host(`argocd.amc.seoul.kr`) && Headers(`Content-Type`, `application/grpc`)
+      match: Host(`argocd.local`) && Headers(`Content-Type`, `application/grpc`)
       priority: 11
       services:
         - name: argocd-server
           port: 80
           scheme: h2c
   tls: {}
+---
+apiVersion: traefik.containo.us/v1alpha1
+kind: IngressRoute
+metadata:
+  name: argocd-http
+spec:
+  entryPoints:
+    - web
+  routes:
+  - kind: Rule
+    match: Host(`argocd.local`)
+    priority: 10
+    middlewares:
+      - name: redirect-http-https
+    services:
+    - kind: Service
+      name: argocd-server
+      port: http
+
 
 # Restart argocd pod
 
