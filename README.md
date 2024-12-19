@@ -467,15 +467,15 @@ kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.pas
 
 ysdspBnfCeXOqIoK
 
-https://argocd.amc.seoul.kr/settings/certs?addTLSCert=true
+https://argocd.local/settings/certs?addTLSCert=true
 
-add name gitlab.amc.seoul.kr & paste gitlab.amc.seoul.kr.crt pem file
+add name gitlab.local & paste gitlab.local pem file
 
 k exec -it -n argocd $(k get pods -l app.kubernetes.io/name=argocd-server -o name -n argocd) bash
 
 argocd login argocd-server.argocd --insecure --username admin --password ysdspBnfCeXOqIoK
 
-argocd repo add https://gitlab.amc.seoul.kr/argo/kw-mvn-deploy.git --username argo --insecure-skip-server-verification
+argocd repo add https://gitlab.local/argo/kw-mvn-deploy.git --username argo --insecure-skip-server-verification
 
 # Create ArgoCD applications
   
