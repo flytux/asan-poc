@@ -281,23 +281,23 @@ EOF
 
 ```
 
-openssl s_client -showcerts -connect gitlab.amc.seoul.kr:443 -servername gitlab.amc.seoul.kr < /dev/null 2>/dev/null | openssl x509 -outform PEM > gitlab.amc.seoul.kr.crt
-k create secret generic gitlab-runner-tls --from-file=gitlab.amc.seoul.kr.crt  -n gitlab
+openssl s_client -showcerts -connect gitlab.local:443 -servername gitlab.local < /dev/null 2>/dev/null | openssl x509 -outform PEM > gitlab.local.crt
+kubectl create secret generic gitlab-runner-tls --from-file=gitlab.local.crt  -n gitlab
 
 CoreDNS 추가
 hosts {
-      10.10.1.1 gitlab.amc.seoul.kr harbor.amc.seoul.kr # Gitlab Ingress IP 
+      10.10.1.1 gitlab.local harbor.local # Gitlab Ingress IP 
       fallthrough
 }
 	 
-https://gitlab.amc.seoul.kr/argo/kw-mvn/-/runners/new
+https://gitlab.local/argo/kw-mvn/-/runners/new
 
 # Runner Token 확인
 
 glrt-vZuAwYks8JRqx5GULT-f
 
 cat << EOF > gitlab-runner-values.yaml
-gitlabUrl: https://gitlab.amc.seoul.kr
+gitlabUrl: https://gitlab.local
 
 runnerToken: glrt-vZuAwYks8JRqx5GULT-f
 rbac:
