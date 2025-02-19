@@ -212,7 +212,7 @@ EOF
 
 # KubeADM RKE2 / K3S registry
 
-cat << EOF > /etc/containerd/containerd.toml
+cat << EOF > /etc/containerd/config.toml
 [plugins]
   [plugins."io.containerd.grpc.v1.cri"]
    [plugins."io.containerd.grpc.v1.cri".containerd]
